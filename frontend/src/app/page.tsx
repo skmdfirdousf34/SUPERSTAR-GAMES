@@ -689,7 +689,7 @@ export default function HomePage() {
       </div>
 
       {/* 7. FLOATING "ADD TO DESKTOP" PILL (Exact Daman Superstar Screenshot Match) */}
-      <div className="fixed bottom-[3.85rem] left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+      <div className="fixed bottom-[4.25rem] left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
         <button
           onClick={() => {
             alert(
@@ -707,7 +707,7 @@ export default function HomePage() {
       </div>
 
       {/* 8. FLOATING CUSTOMER CARE SUPPORT WIDGET (Single Contact Point) */}
-      <div className="fixed right-3 bottom-20 z-40 pointer-events-auto">
+      <div className="fixed right-3 bottom-24 z-40 pointer-events-auto">
         <a
           href="https://t.me/Raayanhere"
           target="_blank"

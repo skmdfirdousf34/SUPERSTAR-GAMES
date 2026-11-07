@@ -18,14 +18,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-neutral-950 min-h-screen">
+      <body className="bg-neutral-950 min-h-screen overflow-x-hidden">
         <AuthProvider>
           <SocketProvider>
             <MobileContainer>
               <Header />
-              <main className="flex-1 pb-20">{children}</main>
-              <BottomNav />
+              <main className="flex-1 pb-24">{children}</main>
             </MobileContainer>
+            <BottomNav />
           </SocketProvider>
         </AuthProvider>
       </body>

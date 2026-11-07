@@ -24,6 +24,8 @@ import {
   ArrowDownToLine,
   Building,
   KeyRound,
+  Gift,
+  ArrowUpFromLine,
 } from "lucide-react";
 
 export default function AccountPage() {
@@ -238,27 +240,55 @@ export default function AccountPage() {
             </div>
             <div className="text-[11px] text-slate-400 font-mono mt-0.5">UID: {uid}</div>
 
-            {/* Dual Balance chips */}
-            <div className="mt-2 flex items-center justify-between bg-black/40 rounded-xl px-3 py-1.5 border border-slate-700/60">
-              <div>
-                <span className="text-[9px] text-slate-400 block font-medium">Real Cash</span>
-                <span className="text-xs font-black text-amber-400 font-mono">
-                  ₹{user.wallet?.balance ? user.wallet.balance.toFixed(2) : "0.00"}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[9px] text-amber-300 block font-medium">Bonus (1:2)</span>
-                <span className="text-xs font-black text-amber-300 font-mono">
-                  ₹{user.wallet?.bonusBalance ? user.wallet.bonusBalance.toFixed(2) : "0.00"}
-                </span>
-              </div>
-              <Link
-                href="/wallet/recharge"
-                className="bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 shadow ml-2"
-              >
-                <ArrowDownToLine className="w-3 h-3" /> Deposit
-              </Link>
+          </div>
+        </div>
+
+        {/* Redesigned Dual Balance Boxes (Spacious & Clash-Proof) */}
+        <div className="mt-4 grid grid-cols-2 gap-2.5 relative z-10">
+          {/* 1. Real Cash Box */}
+          <div className="bg-slate-950/70 border border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between shadow-inner">
+            <div className="flex items-center justify-between text-[10px] text-emerald-400 font-bold mb-1">
+              <span className="flex items-center gap-1">
+                <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Real Cash</span>
+              </span>
+              <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded font-mono font-bold">
+                Withdrawable
+              </span>
             </div>
+            <div className="text-base sm:text-lg font-black text-white font-mono tracking-tight my-1 truncate">
+              ₹{user.wallet?.balance ? user.wallet.balance.toFixed(2) : "0.00"}
+            </div>
+            <Link
+              href="/wallet/withdraw"
+              className="mt-1 w-full py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-300 rounded-lg text-[10px] font-black text-center flex items-center justify-center gap-1 active:scale-95 transition"
+            >
+              <ArrowUpFromLine className="w-3 h-3" />
+              <span>Withdraw</span>
+            </Link>
+          </div>
+
+          {/* 2. Bonus Wallet Box */}
+          <div className="bg-slate-950/70 border border-amber-500/40 rounded-xl p-3 flex flex-col justify-between shadow-inner">
+            <div className="flex items-center justify-between text-[10px] text-amber-400 font-bold mb-1">
+              <span className="flex items-center gap-1">
+                <Gift className="w-3.5 h-3.5 text-amber-400" />
+                <span>Bonus Wallet</span>
+              </span>
+              <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 py-0.5 rounded font-mono font-bold">
+                1:2 Ratio
+              </span>
+            </div>
+            <div className="text-base sm:text-lg font-black text-amber-300 font-mono tracking-tight my-1 truncate">
+              ₹{user.wallet?.bonusBalance ? user.wallet.bonusBalance.toFixed(2) : "0.00"}
+            </div>
+            <Link
+              href="/wallet/recharge"
+              className="mt-1 w-full py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black rounded-lg text-[10px] font-black text-center flex items-center justify-center gap-1 active:scale-95 transition shadow-md shadow-amber-500/20"
+            >
+              <ArrowDownToLine className="w-3 h-3" />
+              <span>Deposit</span>
+            </Link>
           </div>
         </div>
 
