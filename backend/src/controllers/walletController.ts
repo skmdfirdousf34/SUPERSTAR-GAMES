@@ -105,8 +105,8 @@ export class WalletController {
 
       const { amount, bankDetails } = req.body;
       const parsedAmount = parseFloat(amount);
-      if (!parsedAmount || parsedAmount < 100) {
-        res.status(400).json({ error: "Minimum withdrawal amount is ₹100" });
+      if (!parsedAmount || parsedAmount < 300) {
+        res.status(400).json({ error: "Minimum withdrawal amount is ₹300" });
         return;
       }
 

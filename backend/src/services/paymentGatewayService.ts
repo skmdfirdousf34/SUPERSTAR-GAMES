@@ -352,7 +352,7 @@ export class PaymentGatewayService {
       upiId?: string;
     }
   ) {
-    if (amount < 100) throw new Error("Minimum withdrawal amount is ₹100");
+    if (amount < 300) throw new Error("Minimum withdrawal amount is ₹300");
 
     // 1. Banking Operating Hours Check (Mon-Fri 9AM-9PM, Sat 9AM-4PM, Sun Closed)
     const banking = getBankingHoursStatus();

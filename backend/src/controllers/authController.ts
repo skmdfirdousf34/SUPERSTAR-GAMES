@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { AuthRequest } from "../middleware/auth.js";
 import { OtpService } from "../services/otpService.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "default_jwt_secret";
+const JWT_SECRET = process.env.JWT_SECRET || "super_secret_betting_jwt_key_2026_daman_secure";
 
 /**
  * Generate a cryptographically robust, guaranteed unique referral code
@@ -189,7 +189,7 @@ export class AuthController {
       const token = jwt.sign(
         { id: user.id, phone: user.phone, role: user.role },
         JWT_SECRET,
-        { expiresIn: "7d" }
+        { expiresIn: "48h" }
       );
 
       res.status(201).json({
@@ -262,7 +262,7 @@ export class AuthController {
       const token = jwt.sign(
         { id: user.id, phone: user.phone, role: user.role },
         JWT_SECRET,
-        { expiresIn: "7d" }
+        { expiresIn: "48h" }
       );
 
       res.json({

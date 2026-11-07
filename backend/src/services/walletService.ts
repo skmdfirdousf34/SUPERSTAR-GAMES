@@ -203,7 +203,7 @@ export class WalletService {
    * Request Withdrawal (Only Real Cash can be withdrawn, Bonus Wallet is for playing)
    */
   static async requestWithdrawal(userId: string, amount: number) {
-    if (amount < 100) throw new Error("Minimum withdrawal is ₹100");
+    if (amount < 300) throw new Error("Minimum withdrawal is ₹300");
 
     const { getBankingHoursStatus } = await import("./bankingHoursService.js");
     const banking = getBankingHoursStatus();

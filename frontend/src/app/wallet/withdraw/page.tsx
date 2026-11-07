@@ -52,7 +52,7 @@ export default function WithdrawPage() {
   const router = useRouter();
   const { user, refreshUser } = useAuth();
 
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(500);
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(300);
   const [holderName, setHolderName] = useState<string>("");
   const [bankName, setBankName] = useState<string>("State Bank of India");
   const [accountNumber, setAccountNumber] = useState<string>("");
@@ -95,8 +95,8 @@ export default function WithdrawPage() {
       return;
     }
 
-    if (withdrawAmount < 100) {
-      setErrorMsg("Minimum withdrawal amount is ₹100");
+    if (withdrawAmount < 300) {
+      setErrorMsg("Minimum withdrawal amount is ₹300");
       return;
     }
 
@@ -381,19 +381,42 @@ export default function WithdrawPage() {
       <form onSubmit={handleSubmitWithdrawal} className="flex flex-col gap-4">
         {/* Withdrawal Amount */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg">
-          <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-2">
-            Withdrawal Amount (Min ₹100)
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
+              Withdrawal Amount (Min ₹300)
+            </label>
+            <span className="text-[10px] text-amber-400 font-bold bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
+              Min ₹300
+            </span>
+          </div>
           <div className="relative flex items-center">
             <span className="absolute left-3 text-slate-500 font-bold text-sm">₹</span>
             <input
               type="number"
-              min="100"
+              min="300"
               step="50"
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(parseInt(e.target.value) || 0)}
               className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-amber-400 font-mono"
             />
+          </div>
+
+          {/* Quick Amount Selectors */}
+          <div className="grid grid-cols-6 gap-1.5 mt-2.5">
+            {[300, 500, 1000, 2000, 5000, 10000].map((amt) => (
+              <button
+                key={amt}
+                type="button"
+                onClick={() => setWithdrawAmount(amt)}
+                className={`py-1 rounded-lg text-[11px] font-bold border transition ${
+                  withdrawAmount === amt
+                    ? "bg-amber-400 text-slate-950 border-amber-400 shadow-md shadow-amber-400/20"
+                    : "bg-slate-800/80 text-slate-300 border-slate-700/60 hover:border-slate-600"
+                }`}
+              >
+                ₹{amt >= 1000 ? `${amt / 1000}k` : amt}
+              </button>
+            ))}
           </div>
 
           {/* Payout Desk Notice */}

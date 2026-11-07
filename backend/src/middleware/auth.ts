@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "default_jwt_secret";
+const JWT_SECRET = process.env.JWT_SECRET || "super_secret_betting_jwt_key_2026_daman_secure";
 
 export interface AuthenticatedUser {
   id: string;
@@ -32,7 +32,7 @@ export const authenticateToken = (
     req.user = decoded;
     next();
   } catch (error) {
-    res.status(403).json({ error: "Invalid or expired token" });
+    res.status(401).json({ error: "Invalid or expired token" });
     return;
   }
 };

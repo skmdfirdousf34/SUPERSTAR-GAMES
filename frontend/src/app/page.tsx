@@ -688,26 +688,8 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 7. FLOATING "ADD TO DESKTOP" PILL (Exact Daman Superstar Screenshot Match) */}
-      <div className="fixed bottom-[4.25rem] left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
-        <button
-          onClick={() => {
-            alert(
-              "📲 Add Superstar to Desktop / Mobile Home Screen:\n\n" +
-              "1. In your browser (Safari / Chrome), tap the Share / Menu icon (⋮)\n" +
-              "2. Tap 'Add to Home Screen'\n" +
-              "3. Enjoy 1-tap instant casino gaming anytime!"
-            );
-          }}
-          className="px-4 py-1.5 rounded-full bg-gradient-to-r from-[#ff7566] via-[#fe5043] to-[#f2413b] text-white text-xs font-black shadow-2xl shadow-red-500/50 border-2 border-white/70 flex items-center gap-1.5 active:scale-95 transition hover:scale-105 whitespace-nowrap"
-        >
-          <span className="text-sm">📱</span>
-          <span>Add to Desktop</span>
-        </button>
-      </div>
-
-      {/* 8. FLOATING CUSTOMER CARE SUPPORT WIDGET (Single Contact Point) */}
-      <div className="fixed right-3 bottom-24 z-40 pointer-events-auto">
+      {/* FLOATING CUSTOMER CARE SUPPORT WIDGET (Single Official Support Point) */}
+      <div className="fixed right-3 bottom-20 z-40 pointer-events-auto">
         <a
           href="https://t.me/Raayanhere"
           target="_blank"

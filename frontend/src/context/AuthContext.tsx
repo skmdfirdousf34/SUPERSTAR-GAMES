@@ -42,26 +42,64 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Synchronously restore session from localStorage so refresh never flickers to logged-out state
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedUser = localStorage.getItem("user");
+        return savedUser ? JSON.parse(savedUser) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("token");
+    }
+    return null;
+  });
+
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      // If we already have a saved token, loading can be brief while validating
+      return !localStorage.getItem("token");
+    }
+    return true;
+  });
 
   const fetchProfile = async () => {
     try {
       const data = await apiRequest<{ user: User }>("/auth/me");
-      setUser(data.user);
-    } catch (err) {
-      console.warn("Session expired or unauthorized");
-      localStorage.removeItem("token");
-      setToken(null);
-      setUser(null);
+      if (data?.user) {
+        setUser(data.user);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
+      }
+    } catch (err: any) {
+      // ONLY clear session if server explicitly returned 401 (token expired/invalid) or 404 (user deleted)
+      // Never wipe session on server cold starts, 502/503 gateways, or network timeouts!
+      if (err?.status === 401 || err?.status === 404) {
+        console.warn("Session expired or unauthorized (401/404): logging out");
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+        }
+        setToken(null);
+        setUser(null);
+      } else {
+        console.warn("Backend validation delayed or network glitch; preserving 48h cached session:", err?.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("token");
+    const savedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (savedToken) {
       setToken(savedToken);
       fetchProfile();
@@ -76,9 +114,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       body: JSON.stringify({ phone, password }),
     });
 
-    localStorage.setItem("token", res.token);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", res.token);
+      localStorage.setItem("user", JSON.stringify(res.user));
+    }
     setToken(res.token);
     setUser(res.user);
+    setLoading(false);
     return res.user;
   };
 
@@ -88,9 +130,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       body: JSON.stringify({ phone, otp }),
     });
 
-    localStorage.setItem("token", res.token);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", res.token);
+      localStorage.setItem("user", JSON.stringify(res.user));
+    }
     setToken(res.token);
     setUser(res.user);
+    setLoading(false);
     return res.user;
   };
 
@@ -115,9 +161,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       body: JSON.stringify({ phone, password, referralCode, otp }),
     });
 
-    localStorage.setItem("token", res.token);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", res.token);
+      localStorage.setItem("user", JSON.stringify(res.user));
+    }
     setToken(res.token);
     setUser(res.user);
+    setLoading(false);
   };
 
   const resetPassword = async (phone: string, otp: string, newPassword: string) => {
@@ -134,19 +184,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       body: JSON.stringify({ newPin, currentPin }),
     });
     if (user) {
-      setUser({ ...user, hasSecurityPin: true });
+      const updatedUser = { ...user, hasSecurityPin: true };
+      setUser(updatedUser);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+      }
     }
     return res.message;
   };
 
   const logout = () => {
-    localStorage.removeItem("token");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+    }
     setToken(null);
     setUser(null);
   };
 
   const refreshUser = async () => {
-    if (token) {
+    const savedToken = (typeof window !== "undefined" ? localStorage.getItem("token") : null) || token;
+    if (savedToken) {
       await fetchProfile();
     }
   };
