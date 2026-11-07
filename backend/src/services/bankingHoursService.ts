@@ -1,5 +1,5 @@
 /**
- * Banking Hours Service (Indian Standard Time - Asia/Kolkata)
+ * Banking Hours Service (Indian Standard Time - Asia/Kolkata, UTC+5:30)
  *
  * Operational Schedule:
  * - Monday to Friday: 9:00 AM – 9:00 PM IST
@@ -12,6 +12,7 @@ export interface BankingHoursStatus {
   currentDay: string;
   currentISTTime: string;
   message: string;
+  nextOpeningText: string;
   schedule: {
     mon_fri: string;
     sat: string;
@@ -21,10 +22,8 @@ export interface BankingHoursStatus {
 
 export function getBankingHoursStatus(): BankingHoursStatus {
   const now = new Date();
-
-  // Convert current time to IST (Asia/Kolkata) string and parse
-  const istString = now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
-  const istDate = new Date(istString);
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utc + 3600000 * 5.5); // Exact UTC + 5:30 (IST)
 
   const day = istDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   const hours = istDate.getHours();
@@ -42,11 +41,10 @@ export function getBankingHoursStatus(): BankingHoursStatus {
   ];
   const currentDay = dayNames[day];
 
-  const timeFormatted = istDate.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  const hour12 = hours % 12 || 12;
+  const ampm = hours < 12 ? "AM" : "PM";
+  const minutePad = minutes.toString().padStart(2, "0");
+  const currentISTTime = `${hour12}:${minutePad} ${ampm} IST`;
 
   const schedule = {
     mon_fri: "Monday – Friday: 9:00 AM – 9:00 PM IST",
@@ -54,53 +52,84 @@ export function getBankingHoursStatus(): BankingHoursStatus {
     sun: "Sunday: Closed (No Recharges & Withdrawals)",
   };
 
-  // Sunday (day === 0): Fully Closed
+  // 1. Sunday (day === 0): Fully Closed
   if (day === 0) {
     return {
       isOpen: false,
       currentDay,
-      currentISTTime: timeFormatted,
+      currentISTTime,
       message:
         "Banking Services Closed: Recharges & Withdrawals are closed on Sundays. Service resumes Monday at 9:00 AM IST.",
+      nextOpeningText: "Monday at 9:00 AM IST",
       schedule,
     };
   }
 
-  // Saturday (day === 6): 9:00 AM (540 mins) to 4:00 PM (960 mins)
+  // 2. Saturday (day === 6): 9:00 AM (540 mins) to 4:00 PM (960 mins)
   if (day === 6) {
-    const openTime = 9 * 60; // 09:00
-    const closeTime = 16 * 60; // 16:00 (4:00 PM)
+    const openTime = 9 * 60; // 09:00 AM
+    const closeTime = 16 * 60; // 04:00 PM (16:00)
 
-    if (currentMinutes < openTime || currentMinutes >= closeTime) {
+    if (currentMinutes < openTime) {
       return {
         isOpen: false,
         currentDay,
-        currentISTTime: timeFormatted,
+        currentISTTime,
         message:
           "Saturday Banking Hours are 9:00 AM to 4:00 PM IST. Recharges and withdrawals are currently closed.",
+        nextOpeningText: "Today (Saturday) at 9:00 AM IST",
         schedule,
       };
     }
+
+    if (currentMinutes >= closeTime) {
+      return {
+        isOpen: false,
+        currentDay,
+        currentISTTime,
+        message:
+          "Saturday Banking Hours (9:00 AM – 4:00 PM IST) have ended for today. Desk reopens Monday at 9:00 AM IST (Sunday is closed).",
+        nextOpeningText: "Monday at 9:00 AM IST",
+        schedule,
+      };
+    }
+
     return {
       isOpen: true,
       currentDay,
-      currentISTTime: timeFormatted,
+      currentISTTime,
       message: "Banking Services Open (Saturday 9:00 AM – 4:00 PM IST)",
+      nextOpeningText: "Open Now until 4:00 PM IST",
       schedule,
     };
   }
 
-  // Monday to Friday (day >= 1 && day <= 5): 9:00 AM (540 mins) to 9:00 PM (1260 mins)
-  const openTime = 9 * 60; // 09:00
-  const closeTime = 21 * 60; // 21:00 (9:00 PM)
+  // 3. Monday to Friday (day >= 1 && day <= 5): 9:00 AM (540 mins) to 9:00 PM (1260 mins)
+  const openTime = 9 * 60; // 09:00 AM
+  const closeTime = 21 * 60; // 09:00 PM (21:00)
 
-  if (currentMinutes < openTime || currentMinutes >= closeTime) {
+  if (currentMinutes < openTime) {
     return {
       isOpen: false,
       currentDay,
-      currentISTTime: timeFormatted,
+      currentISTTime,
       message:
         "Weekday Banking Hours are 9:00 AM to 9:00 PM IST. Recharges and withdrawals are currently closed.",
+      nextOpeningText: `Today (${currentDay}) at 9:00 AM IST`,
+      schedule,
+    };
+  }
+
+  if (currentMinutes >= closeTime) {
+    const isFriday = day === 5;
+    const nextText = isFriday ? "Saturday at 9:00 AM IST" : "Tomorrow at 9:00 AM IST";
+    return {
+      isOpen: false,
+      currentDay,
+      currentISTTime,
+      message:
+        `Weekday Banking Hours (9:00 AM – 9:00 PM IST) have ended for today. Desk reopens ${nextText}.`,
+      nextOpeningText: nextText,
       schedule,
     };
   }
@@ -108,8 +137,9 @@ export function getBankingHoursStatus(): BankingHoursStatus {
   return {
     isOpen: true,
     currentDay,
-    currentISTTime: timeFormatted,
-    message: "Banking Services Open (Mon–Fri 9:00 AM – 9:00 PM IST)",
+    currentISTTime,
+    message: "Banking Services Open (Monday – Friday 9:00 AM – 9:00 PM IST)",
+    nextOpeningText: "Open Now until 9:00 PM IST",
     schedule,
   };
 }

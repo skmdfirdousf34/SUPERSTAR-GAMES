@@ -18,6 +18,7 @@ import {
   Percent,
   Clock,
 } from "lucide-react";
+import { getClientBankingHours, BankingHoursStatus } from "../../../lib/bankingHours";
 
 interface TurnoverStatus {
   totalDeposits: number;
@@ -60,9 +61,19 @@ export default function WithdrawPage() {
   const [upiId, setUpiId] = useState<string>("");
 
   const [turnover, setTurnover] = useState<TurnoverStatus | null>(null);
+  // Instant deterministic client IST banking calculation on initial load
+  const [bankingHours, setBankingHours] = useState<BankingHoursStatus>(getClientBankingHours);
   const [loading, setLoading] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Poll banking hours every 10 seconds to keep live IST status in sync
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setBankingHours(getClientBankingHours());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   // If user already has bank details saved, preload them + fetch turnover
   useEffect(() => {
@@ -90,8 +101,8 @@ export default function WithdrawPage() {
     e.preventDefault();
     if (!user) return;
 
-    if (turnover?.bankingHours && !turnover.bankingHours.isOpen) {
-      setErrorMsg(turnover.bankingHours.message);
+    if (!bankingHours.isOpen) {
+      setErrorMsg(bankingHours.message);
       return;
     }
 
@@ -213,42 +224,54 @@ export default function WithdrawPage() {
       )}
 
       {/* Live Banking Hours Banner (Mon-Fri 9AM-9PM, Sat 9AM-4PM IST) */}
-      {turnover?.bankingHours && (
-        <div
-          className={`p-3 rounded-2xl border flex items-center justify-between text-xs shadow-md ${
-            turnover.bankingHours.isOpen
-              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
-          }`}
-        >
+      <div
+        className={`p-3.5 rounded-2xl border flex flex-col gap-2 shadow-md ${
+          bankingHours.isOpen
+            ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+            : "bg-gradient-to-br from-rose-950/80 via-slate-900 to-rose-950/50 border-2 border-rose-500/60 text-rose-300 shadow-rose-950/40"
+        }`}
+      >
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock
               className={`w-4 h-4 shrink-0 ${
-                turnover.bankingHours.isOpen ? "text-emerald-400" : "text-rose-400"
+                bankingHours.isOpen ? "text-emerald-400" : "text-rose-400 animate-pulse"
               }`}
             />
             <div>
-              <span className="font-bold block text-[11px]">
-                {turnover.bankingHours.isOpen
-                  ? "● Banking Hours: Open"
-                  : "● Banking Hours: Closed (Sunday Closed)"}
+              <span className="font-extrabold block text-xs tracking-wide">
+                {bankingHours.isOpen
+                  ? "● Banking Services: OPEN"
+                  : "⛔ WITHDRAWAL DESK CURRENTLY CLOSED"}
               </span>
-              <span className="text-[10px] text-slate-400 block">
-                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST
+              <span className="text-[10px] text-slate-400 block mt-0.5">
+                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST | Sun: Closed
               </span>
             </div>
           </div>
           <span
-            className={`text-[9px] font-black px-2 py-0.5 rounded-full font-mono ${
-              turnover.bankingHours.isOpen
+            className={`text-[10px] font-black px-2.5 py-1 rounded-full font-mono ${
+              bankingHours.isOpen
                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                : "bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse"
             }`}
           >
-            {turnover.bankingHours.currentDay} {turnover.bankingHours.currentISTTime}
+            {bankingHours.currentDay} {bankingHours.currentISTTime}
           </span>
         </div>
-      )}
+
+        {!bankingHours.isOpen && (
+          <div className="pt-2 border-t border-rose-500/20 text-xs text-rose-200/90 flex flex-col gap-1">
+            <p className="font-medium">{bankingHours.message}</p>
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-400 mt-1">
+              <span>Next Payout Window:</span>
+              <span className="bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+                {bankingHours.nextOpeningText}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Available Balance Box */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg flex justify-between items-center">
@@ -514,20 +537,22 @@ export default function WithdrawPage() {
           type="submit"
           disabled={
             loading ||
-            (turnover !== null && !turnover.isEligible) ||
-            (turnover?.bankingHours ? !turnover.bankingHours.isOpen : false)
+            !bankingHours.isOpen ||
+            (turnover !== null && !turnover.isEligible)
           }
           className={`w-full py-3.5 rounded-xl font-black text-sm shadow-xl active:scale-98 transition flex items-center justify-center gap-2 ${
-            (turnover !== null && !turnover.isEligible) ||
-            (turnover?.bankingHours ? !turnover.bankingHours.isOpen : false)
-              ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+            !bankingHours.isOpen || (turnover !== null && !turnover.isEligible)
+              ? "bg-slate-800 text-rose-400 cursor-not-allowed border border-rose-500/30"
               : "bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-amber-950/40 hover:from-amber-400 hover:to-orange-400"
           }`}
         >
           {loading ? (
             "Submitting Request..."
-          ) : turnover?.bankingHours && !turnover.bankingHours.isOpen ? (
-            <span>🔒 Banking Hours Closed (Opens Mon–Fri 9AM–9PM, Sat 9AM–4PM)</span>
+          ) : !bankingHours.isOpen ? (
+            <>
+              <Lock className="w-4 h-4 text-rose-400" />
+              <span>Closed: Reopens {bankingHours.nextOpeningText}</span>
+            </>
           ) : turnover !== null && !turnover.isEligible ? (
             !turnover.hasRecharged ? (
               <span>🔒 First Recharge Required To Withdraw</span>

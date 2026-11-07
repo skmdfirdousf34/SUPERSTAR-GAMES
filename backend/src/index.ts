@@ -91,6 +91,13 @@ app.use("/api/activity", activityRoutes);
 app.use("/api/games", createGameRoutes(wingoEngine, aviatorEngine));
 app.use("/api/admin", createAdminRoutes(wingoEngine, aviatorEngine));
 
+// Public Banking Operating Hours Check
+app.get("/api/banking-hours", (_req, res) => {
+  import("./services/bankingHoursService.js").then(({ getBankingHoursStatus }) => {
+    res.json(getBankingHoursStatus());
+  });
+});
+
 // Health check
 app.get("/api/health", (_req, res) => {
   res.json({

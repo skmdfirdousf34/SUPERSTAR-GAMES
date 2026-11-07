@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../context/AuthContext";
 import { apiRequest } from "../../../lib/api";
+import { getClientBankingHours, BankingHoursStatus } from "../../../lib/bankingHours";
 import {
   ArrowLeft,
   QrCode,
@@ -14,19 +15,8 @@ import {
   CreditCard,
   AlertCircle,
   Clock,
+  Lock,
 } from "lucide-react";
-
-interface BankingHoursStatus {
-  isOpen: boolean;
-  currentDay: string;
-  currentISTTime: string;
-  message: string;
-  schedule: {
-    mon_fri: string;
-    sat: string;
-    sun: string;
-  };
-}
 
 export default function RechargePage() {
   const router = useRouter();
@@ -36,14 +26,30 @@ export default function RechargePage() {
   const [utrNumber, setUtrNumber] = useState<string>("");
   const [copiedUpi, setCopiedUpi] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [bankingHours, setBankingHours] = useState<BankingHoursStatus | null>(null);
+  // Instant deterministic client IST banking calculation on initial load
+  const [bankingHours, setBankingHours] = useState<BankingHoursStatus>(getClientBankingHours);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    apiRequest<BankingHoursStatus>("/wallet/banking-hours")
-      .then(setBankingHours)
-      .catch(console.error);
+    // 1. Instant check
+    setBankingHours(getClientBankingHours());
+
+    // 2. Poll every 10 seconds to keep live clock ticking
+    const timer = setInterval(() => {
+      setBankingHours(getClientBankingHours());
+    }, 10000);
+
+    // 3. Background validation with backend API
+    apiRequest<BankingHoursStatus>("/banking-hours")
+      .then((res) => {
+        if (res && typeof res.isOpen === "boolean") {
+          setBankingHours(res);
+        }
+      })
+      .catch(() => {});
+
+    return () => clearInterval(timer);
   }, []);
 
   const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "imrajsk514-3@oksbi";
@@ -119,42 +125,54 @@ export default function RechargePage() {
       </div>
 
       {/* Live Banking Hours Banner (Mon-Fri 9AM-9PM, Sat 9AM-4PM IST) */}
-      {bankingHours && (
-        <div
-          className={`p-3 rounded-2xl border flex items-center justify-between text-xs shadow-md ${
-            bankingHours.isOpen
-              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
-          }`}
-        >
+      <div
+        className={`p-3.5 rounded-2xl border flex flex-col gap-2 shadow-md ${
+          bankingHours.isOpen
+            ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+            : "bg-gradient-to-br from-rose-950/80 via-slate-900 to-rose-950/50 border-2 border-rose-500/60 text-rose-300 shadow-rose-950/40"
+        }`}
+      >
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock
               className={`w-4 h-4 shrink-0 ${
-                bankingHours.isOpen ? "text-emerald-400" : "text-rose-400"
+                bankingHours.isOpen ? "text-emerald-400" : "text-rose-400 animate-pulse"
               }`}
             />
             <div>
-              <span className="font-bold block text-[11px]">
+              <span className="font-extrabold block text-xs tracking-wide">
                 {bankingHours.isOpen
-                  ? "● Banking Hours: Open"
-                  : "● Banking Hours: Closed (Sunday Closed)"}
+                  ? "● Banking Services: OPEN"
+                  : "⛔ RECHARGE & WITHDRAWAL PORTAL CLOSED"}
               </span>
-              <span className="text-[10px] text-slate-400 block">
-                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST
+              <span className="text-[10px] text-slate-400 block mt-0.5">
+                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST | Sun: Closed
               </span>
             </div>
           </div>
           <span
-            className={`text-[9px] font-black px-2 py-0.5 rounded-full font-mono ${
+            className={`text-[10px] font-black px-2.5 py-1 rounded-full font-mono ${
               bankingHours.isOpen
                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                : "bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse"
             }`}
           >
             {bankingHours.currentDay} {bankingHours.currentISTTime}
           </span>
         </div>
-      )}
+
+        {!bankingHours.isOpen && (
+          <div className="pt-2 border-t border-rose-500/20 text-xs text-rose-200/90 flex flex-col gap-1">
+            <p className="font-medium">{bankingHours.message}</p>
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-400 mt-1">
+              <span>Next Opening:</span>
+              <span className="bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+                {bankingHours.nextOpeningText}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {successMsg && (
         <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs rounded-xl text-center font-medium">
@@ -319,17 +337,20 @@ export default function RechargePage() {
 
         <button
           type="submit"
-          disabled={loading || (bankingHours !== null && !bankingHours.isOpen)}
-          className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-xl active:scale-98 transition ${
-            bankingHours !== null && !bankingHours.isOpen
-              ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+          disabled={loading || !bankingHours.isOpen}
+          className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-xl active:scale-98 transition flex items-center justify-center gap-2 ${
+            !bankingHours.isOpen
+              ? "bg-slate-800 text-rose-400 cursor-not-allowed border border-rose-500/30"
               : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 text-black shadow-green-950/40"
           }`}
         >
           {loading ? (
             "Verifying..."
-          ) : bankingHours !== null && !bankingHours.isOpen ? (
-            <span>🔒 Banking Closed (Schedule: Mon–Fri 9AM–9PM, Sat 9AM–4PM)</span>
+          ) : !bankingHours.isOpen ? (
+            <>
+              <Lock className="w-4 h-4 text-rose-400" />
+              <span>Closed: Reopens {bankingHours.nextOpeningText}</span>
+            </>
           ) : (
             `Submit Payment Proof (₹${amount})`
           )}

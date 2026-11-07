@@ -16,6 +16,7 @@ import {
   Filter,
   Clock,
 } from "lucide-react";
+import { getClientBankingHours, BankingHoursStatus } from "../../lib/bankingHours";
 
 interface Transaction {
   id: string;
@@ -32,24 +33,23 @@ export default function WalletPage() {
   const { user, refreshUser } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filter, setFilter] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL" | "WINS">("ALL");
-  const [bankingHours, setBankingHours] = useState<{
-    isOpen: boolean;
-    currentDay: string;
-    currentISTTime: string;
-    message: string;
-    schedule: { mon_fri: string; sat: string; sun: string };
-  } | null>(null);
+  const [bankingHours, setBankingHours] = useState<BankingHoursStatus>(getClientBankingHours);
 
   useEffect(() => {
-    apiRequest<{
-      isOpen: boolean;
-      currentDay: string;
-      currentISTTime: string;
-      message: string;
-      schedule: { mon_fri: string; sat: string; sun: string };
-    }>("/wallet/banking-hours")
-      .then(setBankingHours)
-      .catch(console.error);
+    // Live IST ticker every 10 seconds
+    const timer = setInterval(() => {
+      setBankingHours(getClientBankingHours());
+    }, 10000);
+
+    apiRequest<BankingHoursStatus>("/banking-hours")
+      .then((res) => {
+        if (res && typeof res.isOpen === "boolean") {
+          setBankingHours(res);
+        }
+      })
+      .catch(() => {});
+
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
