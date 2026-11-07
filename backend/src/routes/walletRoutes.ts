@@ -4,8 +4,13 @@ import { authenticateToken, checkNotFrozen } from "../middleware/auth.js";
 
 const router = Router();
 
-// Public Webhook for Gateway PayIN Callbacks
+// Public Webhook for Gateway PayIN Callbacks & Banking Hours
 router.post("/webhook/payin", WalletController.handlePayInWebhook);
+router.get("/banking-hours", (_req, res) => {
+  import("../services/bankingHoursService.js").then(({ getBankingHoursStatus }) => {
+    res.json(getBankingHoursStatus());
+  });
+});
 
 // Authenticated Routes
 router.use(authenticateToken);

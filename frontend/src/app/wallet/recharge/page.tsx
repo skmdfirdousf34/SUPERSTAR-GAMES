@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../context/AuthContext";
@@ -13,7 +13,20 @@ import {
   ShieldCheck,
   CreditCard,
   AlertCircle,
+  Clock,
 } from "lucide-react";
+
+interface BankingHoursStatus {
+  isOpen: boolean;
+  currentDay: string;
+  currentISTTime: string;
+  message: string;
+  schedule: {
+    mon_fri: string;
+    sat: string;
+    sun: string;
+  };
+}
 
 export default function RechargePage() {
   const router = useRouter();
@@ -23,8 +36,15 @@ export default function RechargePage() {
   const [utrNumber, setUtrNumber] = useState<string>("");
   const [copiedUpi, setCopiedUpi] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [bankingHours, setBankingHours] = useState<BankingHoursStatus | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiRequest<BankingHoursStatus>("/wallet/banking-hours")
+      .then(setBankingHours)
+      .catch(console.error);
+  }, []);
 
   const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "imrajsk514-3@oksbi";
   const PAYEE_NAME = process.env.NEXT_PUBLIC_PAYMENT_NAME || "Sk Imraj";
@@ -42,6 +62,10 @@ export default function RechargePage() {
 
   const handleSubmitRecharge = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (bankingHours && !bankingHours.isOpen) {
+      setErrorMsg(bankingHours.message);
+      return;
+    }
     if (amount < 100) {
       setErrorMsg("Minimum recharge amount is ₹100");
       return;
@@ -93,6 +117,44 @@ export default function RechargePage() {
         </Link>
         <h1 className="text-base font-extrabold text-white">Recharge Balance</h1>
       </div>
+
+      {/* Live Banking Hours Banner (Mon-Fri 9AM-9PM, Sat 9AM-4PM IST) */}
+      {bankingHours && (
+        <div
+          className={`p-3 rounded-2xl border flex items-center justify-between text-xs shadow-md ${
+            bankingHours.isOpen
+              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Clock
+              className={`w-4 h-4 shrink-0 ${
+                bankingHours.isOpen ? "text-emerald-400" : "text-rose-400"
+              }`}
+            />
+            <div>
+              <span className="font-bold block text-[11px]">
+                {bankingHours.isOpen
+                  ? "● Banking Hours: Open"
+                  : "● Banking Hours: Closed (Sunday Closed)"}
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST
+              </span>
+            </div>
+          </div>
+          <span
+            className={`text-[9px] font-black px-2 py-0.5 rounded-full font-mono ${
+              bankingHours.isOpen
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+            }`}
+          >
+            {bankingHours.currentDay} {bankingHours.currentISTTime}
+          </span>
+        </div>
+      )}
 
       {successMsg && (
         <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs rounded-xl text-center font-medium">
@@ -257,10 +319,20 @@ export default function RechargePage() {
 
         <button
           type="submit"
-          disabled={loading}
-          className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 text-black py-3.5 rounded-xl font-bold text-sm shadow-xl shadow-green-950/40 active:scale-98 transition disabled:opacity-50"
+          disabled={loading || (bankingHours !== null && !bankingHours.isOpen)}
+          className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-xl active:scale-98 transition ${
+            bankingHours !== null && !bankingHours.isOpen
+              ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+              : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 text-black shadow-green-950/40"
+          }`}
         >
-          {loading ? "Verifying..." : `Submit Payment Proof (₹${amount})`}
+          {loading ? (
+            "Verifying..."
+          ) : bankingHours !== null && !bankingHours.isOpen ? (
+            <span>🔒 Banking Closed (Schedule: Mon–Fri 9AM–9PM, Sat 9AM–4PM)</span>
+          ) : (
+            `Submit Payment Proof (₹${amount})`
+          )}
         </button>
       </form>
 

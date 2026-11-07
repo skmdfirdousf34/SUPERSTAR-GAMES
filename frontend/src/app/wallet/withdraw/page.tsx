@@ -16,6 +16,7 @@ import {
   Zap,
   Lock,
   Percent,
+  Clock,
 } from "lucide-react";
 
 interface TurnoverStatus {
@@ -26,10 +27,22 @@ interface TurnoverStatus {
   wageringPercentage: number;
   hasRecharged: boolean;
   minWagerRequired: number;
+  bankingHours?: {
+    isOpen: boolean;
+    currentDay: string;
+    currentISTTime: string;
+    message: string;
+    schedule: {
+      mon_fri: string;
+      sat: string;
+      sun: string;
+    };
+  };
   turnoverDetails?: {
     firstRechargeCompleted: boolean;
     minGameTurnoverMet: boolean;
     depositTurnoverMet: boolean;
+    isOneTimeActivationMet: boolean;
     rechargeMessage: string;
     wagerMessage: string;
   };
@@ -77,6 +90,11 @@ export default function WithdrawPage() {
     e.preventDefault();
     if (!user) return;
 
+    if (turnover?.bankingHours && !turnover.bankingHours.isOpen) {
+      setErrorMsg(turnover.bankingHours.message);
+      return;
+    }
+
     if (withdrawAmount < 100) {
       setErrorMsg("Minimum withdrawal amount is ₹100");
       return;
@@ -104,10 +122,18 @@ export default function WithdrawPage() {
     }
 
     if (turnover && !turnover.isEligible) {
-      setErrorMsg(
-        `Wagering requirement not met! You need to place ₹${turnover.remainingWager.toFixed(2)} more in trades before withdrawing.`
-      );
-      return;
+      if (!turnover.hasRecharged) {
+        setErrorMsg(
+          "One-time activation required: Please make a first recharge of at least ₹100 before withdrawing."
+        );
+        return;
+      }
+      if (turnover.totalWagered < 100) {
+        setErrorMsg(
+          `One-time activation required: Please play ₹${(100 - turnover.totalWagered).toFixed(2)} more in games (Win Go / Aviator) to complete your account activation.`
+        );
+        return;
+      }
     }
 
     setLoading(true);
@@ -186,11 +212,49 @@ export default function WithdrawPage() {
         </div>
       )}
 
+      {/* Live Banking Hours Banner (Mon-Fri 9AM-9PM, Sat 9AM-4PM IST) */}
+      {turnover?.bankingHours && (
+        <div
+          className={`p-3 rounded-2xl border flex items-center justify-between text-xs shadow-md ${
+            turnover.bankingHours.isOpen
+              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Clock
+              className={`w-4 h-4 shrink-0 ${
+                turnover.bankingHours.isOpen ? "text-emerald-400" : "text-rose-400"
+              }`}
+            />
+            <div>
+              <span className="font-bold block text-[11px]">
+                {turnover.bankingHours.isOpen
+                  ? "● Banking Hours: Open"
+                  : "● Banking Hours: Closed (Sunday Closed)"}
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST
+              </span>
+            </div>
+          </div>
+          <span
+            className={`text-[9px] font-black px-2 py-0.5 rounded-full font-mono ${
+              turnover.bankingHours.isOpen
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+            }`}
+          >
+            {turnover.bankingHours.currentDay} {turnover.bankingHours.currentISTTime}
+          </span>
+        </div>
+      )}
+
       {/* Available Balance Box */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg flex justify-between items-center">
         <div>
           <span className="text-[11px] text-slate-400 font-semibold uppercase block">
-            Withdrawable Balance
+            Withdrawable Balance (Real Cash)
           </span>
           <span className="text-2xl font-black text-amber-400 font-mono">
             ₹{user?.wallet?.balance ? user.wallet.balance.toFixed(2) : "0.00"}
@@ -201,98 +265,116 @@ export default function WithdrawPage() {
         </span>
       </div>
 
-      {/* Turnover & Withdrawal Verification Checklist */}
+      {/* One-Time Account Activation & Withdrawal Verification Card */}
       {turnover && (
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
           <div className="flex justify-between items-center text-xs pb-2 border-b border-slate-800">
             <span className="font-bold text-white flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Withdrawal Eligibility Checklist</span>
+              <span>Withdrawal Eligibility Rule</span>
             </span>
             <span
-              className={`font-mono text-xs font-black ${
-                turnover.isEligible ? "text-emerald-400" : "text-amber-400"
+              className={`font-mono text-[10px] font-black px-2 py-0.5 rounded-full ${
+                turnover.isEligible
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                  : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
               }`}
             >
-              {turnover.isEligible ? "ELIGIBLE TO WITHDRAW" : "REQUIREMENTS PENDING"}
+              {turnover.isEligible ? "ACTIVATED & ELIGIBLE" : "ONE-TIME SETUP PENDING"}
             </span>
           </div>
 
-          {/* Condition 1: First Recharge */}
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs">
-            <div className="flex items-center gap-2">
-              {turnover.hasRecharged ? (
+          {turnover.isEligible ? (
+            /* Eligible: One-Time Verification Passed */
+            <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex flex-col gap-1 text-xs">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              )}
-              <div>
-                <span className="font-bold text-slate-200 block">1. First Recharge (Min ₹100)</span>
-                <span className="text-[10px] text-slate-400">
-                  {turnover.hasRecharged
-                    ? `Completed (Total Recharged: ₹${turnover.totalDeposits.toFixed(2)})`
-                    : "Recharge required to activate bonus & withdrawals"}
-                </span>
+                <span>One-Time Account Activation Complete!</span>
               </div>
+              <p className="text-[10px] text-slate-300 leading-relaxed mt-0.5">
+                Initial ₹100 recharge and ₹100 gameplay verified. You can now withdraw 100% of your Real Cash balance anytime during operating hours. (Bonus wallet cannot be withdrawn and is strictly for gameplay).
+              </p>
             </div>
-            {!turnover.hasRecharged && (
-              <Link
-                href="/wallet/recharge"
-                className="bg-emerald-500 hover:bg-emerald-400 text-black px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 shadow"
-              >
-                Recharge Now
-              </Link>
-            )}
-          </div>
-
-          {/* Condition 2: Min ₹100 Game Bets Played */}
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs">
-            <div className="flex items-center gap-2">
-              {turnover.totalWagered >= 100 ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              )}
-              <div>
-                <span className="font-bold text-slate-200 block">2. Play Min ₹100 Game Bets</span>
-                <span className="text-[10px] text-slate-400">
-                  {turnover.totalWagered >= 100
-                    ? `Completed (Total Played: ₹${turnover.totalWagered.toFixed(2)})`
-                    : `Played ₹${turnover.totalWagered.toFixed(2)} / ₹100.00 required`}
-                </span>
+          ) : (
+            /* Pending: Show the 2 One-time Steps */
+            <>
+              {/* Condition 1: First Recharge */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs">
+                <div className="flex items-center gap-2">
+                  {turnover.hasRecharged ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold text-slate-200 block">
+                      1. One-Time First Recharge (Min ₹100)
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {turnover.hasRecharged
+                        ? `Completed (Total Recharged: ₹${turnover.totalDeposits.toFixed(2)})`
+                        : "First recharge required to unlock withdrawals"}
+                    </span>
+                  </div>
+                </div>
+                {!turnover.hasRecharged && (
+                  <Link
+                    href="/wallet/recharge"
+                    className="bg-emerald-500 hover:bg-emerald-400 text-black px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 shadow"
+                  >
+                    Recharge Now
+                  </Link>
+                )}
               </div>
-            </div>
-            {turnover.totalWagered < 100 && (
-              <Link
-                href="/games/wingo"
-                className="bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 shadow"
-              >
-                Play Win Go
-              </Link>
-            )}
-          </div>
 
-          {/* Progress Bar */}
-          <div className="flex flex-col gap-1.5 pt-1">
-            <div className="flex justify-between text-[11px] font-semibold text-slate-300">
-              <span>Overall Turnover Progress</span>
-              <span className="font-mono text-amber-400">{turnover.wageringPercentage.toFixed(0)}%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  turnover.isEligible
-                    ? "bg-gradient-to-r from-emerald-500 to-green-500"
-                    : "bg-gradient-to-r from-amber-500 to-orange-500"
-                }`}
-                style={{ width: `${turnover.wageringPercentage}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span>Played: ₹{turnover.totalWagered.toFixed(2)}</span>
-              <span>Target: ₹{turnover.minWagerRequired.toFixed(2)}</span>
-            </div>
-          </div>
+              {/* Condition 2: Initial Gameplay ₹100 */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs">
+                <div className="flex items-center gap-2">
+                  {turnover.totalWagered >= 100 ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold text-slate-200 block">
+                      2. Initial Gameplay (Min ₹100 Bets)
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {turnover.totalWagered >= 100
+                        ? `Completed (Played: ₹${turnover.totalWagered.toFixed(2)})`
+                        : `Played ₹${turnover.totalWagered.toFixed(2)} / ₹100.00 required`}
+                    </span>
+                  </div>
+                </div>
+                {turnover.totalWagered < 100 && (
+                  <Link
+                    href="/games/wingo"
+                    className="bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 shadow"
+                  >
+                    Play Win Go
+                  </Link>
+                )}
+              </div>
+
+              {/* Progress Bar for the Initial ₹100 */}
+              <div className="flex flex-col gap-1.5 pt-1">
+                <div className="flex justify-between text-[11px] font-semibold text-slate-300">
+                  <span>Activation Progress</span>
+                  <span className="font-mono text-amber-400">
+                    {Math.min(100, Math.floor((turnover.totalWagered / 100) * 100))}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, Math.floor((turnover.totalWagered / 100) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -407,15 +489,22 @@ export default function WithdrawPage() {
         {/* Submit Withdrawal Button */}
         <button
           type="submit"
-          disabled={loading || (turnover !== null && !turnover.isEligible)}
+          disabled={
+            loading ||
+            (turnover !== null && !turnover.isEligible) ||
+            (turnover?.bankingHours ? !turnover.bankingHours.isOpen : false)
+          }
           className={`w-full py-3.5 rounded-xl font-black text-sm shadow-xl active:scale-98 transition flex items-center justify-center gap-2 ${
-            turnover !== null && !turnover.isEligible
+            (turnover !== null && !turnover.isEligible) ||
+            (turnover?.bankingHours ? !turnover.bankingHours.isOpen : false)
               ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
               : "bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-amber-950/40 hover:from-amber-400 hover:to-orange-400"
           }`}
         >
           {loading ? (
             "Submitting Request..."
+          ) : turnover?.bankingHours && !turnover.bankingHours.isOpen ? (
+            <span>🔒 Banking Hours Closed (Opens Mon–Fri 9AM–9PM, Sat 9AM–4PM)</span>
           ) : turnover !== null && !turnover.isEligible ? (
             !turnover.hasRecharged ? (
               <span>🔒 First Recharge Required To Withdraw</span>

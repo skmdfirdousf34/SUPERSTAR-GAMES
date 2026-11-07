@@ -179,6 +179,12 @@ export class WalletService {
   ) {
     if (amount < 100) throw new Error("Minimum deposit is ₹100");
 
+    const { getBankingHoursStatus } = await import("./bankingHoursService.js");
+    const banking = getBankingHoursStatus();
+    if (!banking.isOpen) {
+      throw new Error(banking.message);
+    }
+
     const transaction = await prisma.transaction.create({
       data: {
         userId,
@@ -197,7 +203,13 @@ export class WalletService {
    * Request Withdrawal (Only Real Cash can be withdrawn, Bonus Wallet is for playing)
    */
   static async requestWithdrawal(userId: string, amount: number) {
-    if (amount < 200) throw new Error("Minimum withdrawal is ₹200");
+    if (amount < 100) throw new Error("Minimum withdrawal is ₹100");
+
+    const { getBankingHoursStatus } = await import("./bankingHoursService.js");
+    const banking = getBankingHoursStatus();
+    if (!banking.isOpen) {
+      throw new Error(banking.message);
+    }
 
     return await prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId } });

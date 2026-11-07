@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { getBankingHoursStatus, BankingHoursStatus } from "./bankingHoursService.js";
 
 export interface TurnoverStatus {
   totalDeposits: number;
@@ -8,10 +9,12 @@ export interface TurnoverStatus {
   wageringPercentage: number;
   hasRecharged: boolean;
   minWagerRequired: number;
+  bankingHours: BankingHoursStatus;
   turnoverDetails: {
     firstRechargeCompleted: boolean;
     minGameTurnoverMet: boolean;
     depositTurnoverMet: boolean;
+    isOneTimeActivationMet: boolean;
     rechargeMessage: string;
     wagerMessage: string;
   };
@@ -67,30 +70,35 @@ export class PaymentGatewayService {
 
     const totalWagered = wingoWagered + aviatorWagered;
 
-    // 1. Must have recharged at least once
-    const hasRecharged = totalDeposits > 0;
+    // ONE-TIME ACCOUNT ACTIVATION REQUIREMENT:
+    // 1. First recharge of at least ₹100
+    const firstRechargeCompleted = totalDeposits >= 100;
 
-    // 2. Minimum ₹100 game turnover (required for referral bonus activation) & 1x deposit turnover
-    const minWagerRequired = hasRecharged ? Math.max(100, totalDeposits) : 100;
-    const remainingWager = Math.max(0, minWagerRequired - totalWagered);
-
-    const firstRechargeCompleted = hasRecharged;
+    // 2. Initial gameplay of at least ₹100
     const minGameTurnoverMet = totalWagered >= 100;
-    const depositTurnoverMet = totalDeposits > 0 && totalWagered >= totalDeposits;
 
-    // Eligible ONLY IF first recharge completed AND min ₹100 game played AND deposit turnover completed
-    const isEligible = firstRechargeCompleted && minGameTurnoverMet && depositTurnoverMet;
+    // Once BOTH conditions are met, the account is permanently activated for withdrawals!
+    // No more deposit multipliers or ongoing wagering hurdles.
+    const isOneTimeActivationMet = firstRechargeCompleted && minGameTurnoverMet;
+    const isEligible = isOneTimeActivationMet;
 
-    const wageringPercentage =
-      minWagerRequired > 0 ? Math.min(100, (totalWagered / minWagerRequired) * 100) : 0;
+    const remainingGamePlay = Math.max(0, 100 - totalWagered);
+    const remainingWager = isOneTimeActivationMet ? 0 : remainingGamePlay;
+    const minWagerRequired = 100;
+
+    const wageringPercentage = isOneTimeActivationMet
+      ? 100
+      : Math.min(100, Math.floor((totalWagered / 100) * 100));
+
+    const bankingHours = getBankingHoursStatus();
 
     const rechargeMessage = firstRechargeCompleted
-      ? "First recharge requirement met"
-      : "First recharge required (min ₹100) before any withdrawal";
+      ? "First recharge requirement met (₹100+ recharged)"
+      : `First recharge of min ₹100 required (Current: ₹${totalDeposits.toFixed(2)})`;
 
-    const wagerMessage = isEligible
-      ? "Turnover requirements fully met (100%)"
-      : `Play ₹${remainingWager.toFixed(2)} more in games (Played ₹${totalWagered.toFixed(2)} / Required ₹${minWagerRequired.toFixed(2)})`;
+    const wagerMessage = isOneTimeActivationMet
+      ? "Account activated! Withdrawals unlocked for Real Cash."
+      : `Play ₹${remainingGamePlay.toFixed(2)} more in games to complete one-time activation (Played ₹${totalWagered.toFixed(2)} / ₹100)`;
 
     return {
       totalDeposits,
@@ -98,12 +106,14 @@ export class PaymentGatewayService {
       remainingWager,
       isEligible,
       wageringPercentage,
-      hasRecharged,
+      hasRecharged: firstRechargeCompleted,
       minWagerRequired,
+      bankingHours,
       turnoverDetails: {
         firstRechargeCompleted,
         minGameTurnoverMet,
-        depositTurnoverMet,
+        depositTurnoverMet: firstRechargeCompleted,
+        isOneTimeActivationMet,
         rechargeMessage,
         wagerMessage,
       },
@@ -259,6 +269,12 @@ export class PaymentGatewayService {
   ) {
     if (amount < 100) throw new Error("Minimum recharge amount is ₹100");
 
+    // Banking Operating Hours Check (Mon-Fri 9AM-9PM, Sat 9AM-4PM, Sun Closed)
+    const banking = getBankingHoursStatus();
+    if (!banking.isOpen) {
+      throw new Error(banking.message);
+    }
+
     const cleanedUTR = utrNumber.trim();
     if (cleanedUTR.length < 8) {
       throw new Error("Invalid UTR number. Must be a valid 12-digit UPI reference number.");
@@ -338,31 +354,37 @@ export class PaymentGatewayService {
   ) {
     if (amount < 100) throw new Error("Minimum withdrawal amount is ₹100");
 
-    // 1. Turnover & Recharge Safety Pre-checks
+    // 1. Banking Operating Hours Check (Mon-Fri 9AM-9PM, Sat 9AM-4PM, Sun Closed)
+    const banking = getBankingHoursStatus();
+    if (!banking.isOpen) {
+      throw new Error(banking.message);
+    }
+
+    // 2. One-Time Activation Safety Pre-checks (First Recharge min ₹100 + Play min ₹100)
     const turnover = await this.checkTurnover(userId);
     if (!turnover.hasRecharged) {
       throw new Error(
-        "First Recharge Required: You must make at least one recharge (min ₹100) before you can withdraw your balance or referral earnings."
+        "One-Time Activation Required: You must make a first recharge of at least ₹100 before you can withdraw."
       );
     }
     if (!turnover.turnoverDetails.minGameTurnoverMet) {
       throw new Error(
-        `Minimum Game Turnover Required: You have only played ₹${turnover.totalWagered.toFixed(2)} in games. You must play at least ₹100 in games (Win Go / Aviator) before requesting withdrawal.`
-      );
-    }
-    if (!turnover.isEligible) {
-      throw new Error(
-        `Turnover requirement not met! You must place ₹${turnover.remainingWager.toFixed(2)} more in trades before withdrawing.`
+        `One-Time Activation Required: You have only played ₹${turnover.totalWagered.toFixed(2)} in games. Please play at least ₹100 in games (Win Go / Aviator) to complete your one-time account activation.`
       );
     }
 
-    // 2. Balance Verification & Atomic Deduction
+    // 3. Balance Verification & Atomic Deduction (Only Real Cash can be withdrawn)
     const isUnderThreshold = amount <= this.autoPayoutThreshold;
 
     return await prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId } });
       if (!wallet || wallet.balance < amount) {
-        throw new Error("Insufficient wallet balance for this withdrawal");
+        if (wallet && wallet.balance + wallet.bonusBalance >= amount) {
+          throw new Error(
+            `Insufficient Real Cash. Your Real Cash balance is ₹${wallet.balance.toFixed(2)}. Bonus Wallet funds (₹${wallet.bonusBalance.toFixed(2)}) cannot be withdrawn and can only be used in games (1:2 ratio with real cash).`
+          );
+        }
+        throw new Error("Insufficient Real Cash balance for this withdrawal");
       }
 
       // Deduct balance upfront into escrow

@@ -14,6 +14,7 @@ import {
   TrendingUp,
   ChevronRight,
   Filter,
+  Clock,
 } from "lucide-react";
 
 interface Transaction {
@@ -31,6 +32,25 @@ export default function WalletPage() {
   const { user, refreshUser } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filter, setFilter] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL" | "WINS">("ALL");
+  const [bankingHours, setBankingHours] = useState<{
+    isOpen: boolean;
+    currentDay: string;
+    currentISTTime: string;
+    message: string;
+    schedule: { mon_fri: string; sat: string; sun: string };
+  } | null>(null);
+
+  useEffect(() => {
+    apiRequest<{
+      isOpen: boolean;
+      currentDay: string;
+      currentISTTime: string;
+      message: string;
+      schedule: { mon_fri: string; sat: string; sun: string };
+    }>("/wallet/banking-hours")
+      .then(setBankingHours)
+      .catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -68,6 +88,44 @@ export default function WalletPage() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-20">
+      {/* Live Banking Hours Banner */}
+      {bankingHours && (
+        <div
+          className={`p-3 rounded-2xl border flex items-center justify-between text-xs shadow-md ${
+            bankingHours.isOpen
+              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Clock
+              className={`w-4 h-4 shrink-0 ${
+                bankingHours.isOpen ? "text-emerald-400" : "text-rose-400"
+              }`}
+            />
+            <div>
+              <span className="font-bold block text-[11px]">
+                {bankingHours.isOpen
+                  ? "● Banking Services Open"
+                  : "● Banking Services Closed (Sunday Closed)"}
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                Mon–Fri: 9:00 AM – 9:00 PM | Sat: 9:00 AM – 4:00 PM IST
+              </span>
+            </div>
+          </div>
+          <span
+            className={`text-[9px] font-black px-2 py-0.5 rounded-full font-mono ${
+              bankingHours.isOpen
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+            }`}
+          >
+            {bankingHours.currentDay} {bankingHours.currentISTTime}
+          </span>
+        </div>
+      )}
+
       {/* Wallet Card */}
       <div className="rounded-2xl bg-gradient-to-br from-[#121c2e] via-[#162238] to-[#0e1626] border border-slate-700/80 p-5 shadow-2xl relative overflow-hidden">
         <div className="flex justify-between items-start mb-3">
