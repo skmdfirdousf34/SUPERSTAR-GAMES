@@ -1,0 +1,191 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  phone        String        @unique
+  passwordHash String
+  role         String        @default("USER") // "USER" | "ADMIN"
+  referralCode String        @unique
+  referredBy   String?
+  securityPin  String?       // 6-digit withdrawal security PIN
+  lastLoginAt  DateTime?
+  isFrozen     Boolean       @default(false)
+  freezeReason String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  wallet       Wallet?
+  bankAccounts BankAccount[]
+  transactions Transaction[]
+  winGoBets    WinGoBet[]
+  aviatorBets  AviatorBet[]
+  attendanceCheckins AttendanceCheckin[]
+  giftRedemptions    GiftCodeRedemption[]
+
+  @@index([createdAt])
+}
+
+model Wallet {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance       Float    @default(0.0) // Real / Recharged / Withdrawable money
+  bonusBalance  Float    @default(0.0) // Bonus wallet (Signup, Referral, Check-in, Gift codes)
+  totalDeposit  Float    @default(0.0)
+  totalWithdraw Float    @default(0.0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model BankAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountHolderName String
+  bankName          String?
+  accountNumber     String?
+  ifscCode          String?
+  upiId             String?
+  createdAt         DateTime @default(now())
+}
+
+model Transaction {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String   // "DEPOSIT" | "WITHDRAWAL" | "BET_WIN" | "BET_LOSS" | "REFERRAL_BONUS"
+  amount          Float
+  status          String   @default("PENDING") // "PENDING" | "APPROVED" | "REJECTED" | "COMPLETED"
+  paymentMethod   String?  // e.g. "UPI", "BANK_TRANSFER", "USDT"
+  utrNumber       String?  // For deposits (Transaction ref / UTR)
+  payoutRef       String?  // Bank IMPS RRN / Gateway Transfer Ref
+  isAutoProcessed Boolean  @default(false)
+  adminNote       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([type, status])
+  @@index([createdAt])
+}
+
+model BankCreditLog {
+  id         String   @id @default(uuid())
+  utrNumber  String   @unique
+  amount     Float
+  senderName String?
+  senderUpi  String?
+  matched    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model WinGoRound {
+  id            String     @id @default(uuid())
+  period        String     @unique // e.g. "202611060001"
+  gameType      String     @default("1MIN") // 30SEC, 1MIN, 3MIN
+  winningNumber Int?       // 0 to 9
+  winningColor  String?    // "GREEN", "RED", "VIOLET", "GREEN_VIOLET", "RED_VIOLET"
+  winningSize   String?    // "BIG", "SMALL"
+  status        String     @default("BETTING") // "BETTING" | "LOCKED" | "COMPLETED"
+  startTime     DateTime   @default(now())
+  endTime       DateTime
+  bets          WinGoBet[]
+  createdAt     DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model WinGoBet {
+  id               String     @id @default(uuid())
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId          String
+  round            WinGoRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  selectType       String     // "COLOR", "NUMBER", "SIZE"
+  selectValue      String     // "GREEN", "RED", "VIOLET", "0"-"9", "BIG", "SMALL"
+  betAmount        Float
+  payoutMultiplier Float      @default(0.0)
+  winAmount        Float      @default(0.0)
+  status           String     @default("PENDING") // "PENDING" | "WON" | "LOST"
+  createdAt        DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([roundId])
+  @@index([createdAt])
+}
+
+model AviatorRound {
+  id          String       @id @default(uuid())
+  roundNumber String       @unique
+  crashPoint  Float
+  hash        String       // Provably fair SHA256 seed hash
+  status      String       @default("BETTING") // "BETTING" | "FLYING" | "CRASHED"
+  startTime   DateTime     @default(now())
+  crashTime   DateTime?
+  bets        AviatorBet[]
+  createdAt   DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model AviatorBet {
+  id                 String       @id @default(uuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId            String
+  round              AviatorRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  betAmount          Float
+  autoCashout        Float?
+  cashoutMultiplier  Float?
+  winAmount          Float        @default(0.0)
+  status             String       @default("PENDING") // "PENDING" | "CASHED_OUT" | "CRASHED"
+  createdAt          DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@index([roundId])
+  @@index([createdAt])
+}
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  phone     String
+  code      String
+  type      String   // "REGISTER" | "LOGIN" | "RESET_PASSWORD"
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AttendanceCheckin {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day        Int      // 1 to 7
+  reward     Float
+  claimedAt  DateTime @default(now())
+  dateString String   // "YYYY-MM-DD" in IST
+
+  @@unique([userId, dateString])
+  @@index([userId, day])
+}
+
+model GiftCodeRedemption {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code       String
+  amount     Float
+  redeemedAt DateTime @default(now())
+
+  @@unique([userId, code])
+}
