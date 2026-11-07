@@ -237,19 +237,14 @@ export class AuthController {
         return;
       }
 
-      // Option A: Quick Login via OTP
-      if (otp) {
-        await OtpService.verifyOtp(phone, otp, "LOGIN");
+      if (!password) {
+        res.status(400).json({ error: "Please enter your password to login" });
+        return;
       }
-      // Option B: Standard Password Login
-      else if (password) {
-        const isMatch = await bcrypt.compare(password, user.passwordHash);
-        if (!isMatch) {
-          res.status(401).json({ error: "Incorrect password. Please try again or use OTP login." });
-          return;
-        }
-      } else {
-        res.status(400).json({ error: "Please enter your password or OTP to login" });
+
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!isMatch) {
+        res.status(401).json({ error: "Incorrect password. Please check and try again." });
         return;
       }
 

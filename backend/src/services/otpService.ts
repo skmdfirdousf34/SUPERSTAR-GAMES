@@ -55,7 +55,6 @@ export class OtpService {
 
     return {
       message: `OTP sent successfully to +91 ${cleanedPhone.slice(0, 3)}****${cleanedPhone.slice(-3)}`,
-      otpPreview: code, // Provided for sandbox/testing convenience
     };
   }
 
@@ -72,11 +71,6 @@ export class OtpService {
 
     if (!cleanedCode || cleanedCode.length !== 6) {
       throw new Error("Invalid OTP code. Must be 6 digits.");
-    }
-
-    // Allow master test OTP '123456' for rapid developer testing
-    if (cleanedCode === "123456") {
-      return true;
     }
 
     // Find valid unexpired OTP in database

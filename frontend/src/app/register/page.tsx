@@ -7,15 +7,13 @@ import { useAuth } from "../../context/AuthContext";
 import {
   Phone,
   Lock,
-  Gift,
   ArrowRight,
-  CheckCircle2,
-  Sparkles,
-  KeyRound,
+  ShieldCheck,
+  Gift,
   Eye,
   EyeOff,
+  CheckCircle2,
   AlertCircle,
-  ShieldCheck,
   Zap,
   Users,
 } from "lucide-react";
@@ -23,24 +21,18 @@ import {
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { register, sendOtp } = useAuth();
+  const { register } = useAuth();
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [referralCode, setReferralCode] = useState("");
   const [agreeTerms, setAgreeTerms] = useState(true);
 
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // OTP Cooldown
-  const [otpCooldown, setOtpCooldown] = useState(0);
-  const [otpPreview, setOtpPreview] = useState<string | null>(null);
 
   useEffect(() => {
     const ref = searchParams.get("ref") || searchParams.get("invite");
@@ -49,39 +41,9 @@ function RegisterForm() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    let timer: any;
-    if (otpCooldown > 0) {
-      timer = setInterval(() => setOtpCooldown((prev) => prev - 1), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [otpCooldown]);
-
-  const handleSendOtp = async () => {
-    if (!phone || phone.length < 10) {
-      setError("Please enter a valid 10-digit mobile number");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    try {
-      const res = await sendOtp(phone, "REGISTER");
-      setSuccess(res.message);
-      if (res.otpPreview) {
-        setOtpPreview(res.otpPreview);
-      }
-      setOtpCooldown(45);
-    } catch (err: any) {
-      setError(err.message || "Failed to send OTP");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
 
     if (!phone || phone.length < 10) {
       setError("Please enter a valid 10-digit phone number");
@@ -109,8 +71,7 @@ function RegisterForm() {
       await register(
         phone,
         password,
-        referralCode ? referralCode.trim() : undefined,
-        otp ? otp.trim() : undefined
+        referralCode ? referralCode.trim() : undefined
       );
       router.push("/");
     } catch (err: any) {
@@ -138,28 +99,25 @@ function RegisterForm() {
       <div className="grid grid-cols-2 p-1 bg-slate-900 border border-slate-800 rounded-xl mb-4">
         <Link
           href="/login"
-          className="py-2 text-xs font-bold text-slate-400 hover:text-white rounded-lg text-center transition"
+          className="py-2 text-xs font-bold rounded-lg text-center text-slate-400 hover:text-white transition"
         >
-          Log In
+          Password Login
         </Link>
-        <button
-          type="button"
-          className="py-2 text-xs font-bold bg-amber-500 text-black rounded-lg shadow text-center"
-        >
-          Register (Sign Up)
-        </button>
+        <div className="py-2 text-xs font-bold rounded-lg text-center bg-amber-500 text-black shadow">
+          Register New
+        </div>
       </div>
 
-      {/* Referral Bonus Active Banner */}
+      {/* Referral Banner */}
       {referralCode ? (
-        <div className="bg-gradient-to-r from-emerald-500/15 via-emerald-500/10 to-transparent border border-emerald-500/40 text-emerald-300 text-xs p-3.5 rounded-2xl mb-4 flex items-center gap-2.5 shadow-md">
-          <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 animate-pulse" />
-          <div>
-            <span className="font-bold text-white block">
-              ₹100 Referral Bonus Unlocked!
+        <div className="bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-amber-500/20 border border-amber-500/30 text-amber-300 text-xs p-3 rounded-2xl mb-4 flex items-center gap-2.5 animate-in fade-in">
+          <Gift className="w-5 h-5 text-amber-400 shrink-0" />
+          <div className="flex flex-col">
+            <span className="font-bold text-white text-xs">
+              🎁 ₹100 Welcome Bonus Active!
             </span>
             <span className="text-[11px] text-slate-300">
-              Using invite code <strong className="font-mono text-amber-300">{referralCode}</strong>. You and your friend both receive ₹100 upon registration.
+              Using invite code <strong className="font-mono text-amber-300">{referralCode}</strong>.
             </span>
           </div>
         </div>
@@ -167,7 +125,7 @@ function RegisterForm() {
         <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent border border-amber-500/20 text-slate-300 text-xs p-3 rounded-2xl mb-4 flex items-center gap-2.5">
           <Gift className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-[11px]">
-            Have an invitation code? Enter it below to unlock <strong className="text-amber-400">₹100 Instant Bonus Cash</strong>!
+            New players receive <strong className="text-amber-400">₹100 Instant Welcome Bonus</strong> upon registration!
           </span>
         </div>
       )}
@@ -177,21 +135,6 @@ function RegisterForm() {
         <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs p-3 rounded-xl mb-4 flex items-center gap-2 animate-in fade-in">
           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           <span>{error}</span>
-        </div>
-      )}
-
-      {/* Success Notification / Sandbox OTP preview */}
-      {success && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs p-3 rounded-xl mb-4 flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <div>
-            <span>{success}</span>
-            {otpPreview && (
-              <span className="block mt-0.5 font-mono font-bold text-amber-300">
-                Sandbox OTP: {otpPreview}
-              </span>
-            )}
-          </div>
         </div>
       )}
 
@@ -216,37 +159,6 @@ function RegisterForm() {
             />
             <Phone className="absolute right-3 w-4 h-4 text-slate-500" />
           </div>
-        </div>
-
-        {/* SMS OTP Verification Code */}
-        <div>
-          <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-            Verification Code (SMS OTP)
-          </label>
-          <div className="flex gap-2">
-            <div className="relative flex-1 flex items-center">
-              <input
-                type="text"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                placeholder="6-digit OTP"
-                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white font-mono tracking-widest placeholder-slate-500 focus:outline-none focus:border-amber-400 transition"
-              />
-              <KeyRound className="absolute right-3 w-4 h-4 text-slate-500" />
-            </div>
-            <button
-              type="button"
-              disabled={otpCooldown > 0 || loading || !phone}
-              onClick={handleSendOtp}
-              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 px-4 py-3 rounded-xl text-xs font-bold shrink-0 transition disabled:opacity-50"
-            >
-              {otpCooldown > 0 ? `${otpCooldown}s` : "Get OTP"}
-            </button>
-          </div>
-          <span className="text-[10px] text-slate-400 mt-1 block">
-            Test verification code: <strong className="font-mono text-white">123456</strong>
-          </span>
         </div>
 
         {/* Set Login Password */}
@@ -319,7 +231,7 @@ function RegisterForm() {
               type="text"
               value={referralCode}
               onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-              placeholder="e.g. PLAYER01"
+              placeholder="e.g. REF123XYZ"
               className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 uppercase font-mono transition"
             />
             <Gift className="absolute right-3 w-4 h-4 text-amber-400" />
@@ -367,12 +279,12 @@ function RegisterForm() {
         <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-2.5 flex flex-col items-center">
           <ShieldCheck className="w-4 h-4 text-emerald-400 mb-1" />
           <span className="font-bold text-slate-300">100% Safe</span>
-          <span>SSL Encrypted</span>
+          <span>Encrypted Vault</span>
         </div>
         <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-2.5 flex flex-col items-center">
           <Zap className="w-4 h-4 text-amber-400 mb-1" />
-          <span className="font-bold text-slate-300">Fast UPI</span>
-          <span>Verified Payout</span>
+          <span className="font-bold text-slate-300">Instant Access</span>
+          <span>5-Sec Signup</span>
         </div>
         <div className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-2.5 flex flex-col items-center">
           <Users className="w-4 h-4 text-sky-400 mb-1" />
