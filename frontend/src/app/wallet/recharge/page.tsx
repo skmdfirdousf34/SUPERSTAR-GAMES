@@ -53,12 +53,6 @@ export default function RechargePage() {
   }, []);
 
   const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "imrajsk514-3@oksbi";
-  const PAYEE_NAME = process.env.NEXT_PUBLIC_PAYMENT_NAME || "Sk Imraj";
-  const BANK_ACC = process.env.NEXT_PUBLIC_ACCOUNT_NO || "43606293375";
-  const BANK_IFSC = process.env.NEXT_PUBLIC_IFSC || "SBIN0012395";
-  const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME || "State Bank of India";
-  const BANK_HOLDER = process.env.NEXT_PUBLIC_BANK_HOLDER_NAME || "Mr. Sk Asraf Ali";
-  const BANK_BRANCH = process.env.NEXT_PUBLIC_BANK_BRANCH || "RASULPUR (Code: 12395)";
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(DEMO_UPI);
@@ -235,24 +229,24 @@ export default function RechargePage() {
           <span className="text-emerald-400 text-[10px] font-bold">0% Fee</span>
         </div>
 
-        {/* Official Google Pay QR Code */}
+        {/* Clean Official Payment QR Code (No Personal Name / No Avatar) */}
         <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-inner my-1">
-          <div className="w-52 h-52 bg-white p-1 flex items-center justify-center rounded-xl overflow-hidden shadow">
+          <div className="w-52 h-52 bg-white p-2 flex items-center justify-center rounded-xl overflow-hidden shadow border border-slate-100">
             <img
               src="/images/sbi_qr.jpg"
-              alt="Official GPay QR Code - Sk Imraj"
+              alt="Official Recharge UPI QR Code"
               className="w-full h-full object-contain rounded-lg"
               onError={(e) => {
-                // Fallback to dynamic QR if image fails
-                (e.target as HTMLImageElement).src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=${DEMO_UPI}&pn=${encodeURIComponent(PAYEE_NAME)}&am=${amount}&cu=INR`;
+                // Fallback to dynamic clean QR if image fails
+                (e.target as HTMLImageElement).src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${DEMO_UPI}&pn=Superstar%20Games&am=${amount}&cu=INR`;
               }}
             />
           </div>
-          <span className="text-xs font-black text-black mt-2 font-mono">
-            {PAYEE_NAME}
+          <span className="text-xs font-black text-slate-900 mt-2.5">
+            Scan QR to pay ₹{amount}
           </span>
-          <span className="text-[10px] font-bold text-slate-600 font-mono">
-            Scan with any UPI app to pay ₹{amount}
+          <span className="text-[10px] font-semibold text-slate-500">
+            Supports PhonePe, Google Pay, Paytm & All UPI Apps
           </span>
         </div>
 
@@ -260,7 +254,7 @@ export default function RechargePage() {
         <div className="flex items-center justify-between bg-slate-800/80 rounded-xl p-2.5 border border-slate-700 text-xs">
           <div>
             <span className="text-[10px] text-slate-400 block font-semibold">
-              Official UPI ID ({PAYEE_NAME})
+              Official Payment UPI ID
             </span>
             <span className="font-mono font-bold text-amber-400 text-xs">{DEMO_UPI}</span>
           </div>
@@ -275,39 +269,11 @@ export default function RechargePage() {
 
         {/* 1-Tap Pay with UPI App Intent */}
         <a
-          href={`upi://pay?pa=${DEMO_UPI}&pn=${encodeURIComponent(PAYEE_NAME)}&am=${amount}&cu=INR`}
+          href={`upi://pay?pa=${DEMO_UPI}&pn=SuperstarGames&am=${amount}&cu=INR`}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-green-950/40 active:scale-98 transition"
         >
           <span>🚀 1-Tap Fast Pay (PhonePe / GPay / Paytm ₹{amount})</span>
         </a>
-
-        {/* Direct Bank Account Transfer Option */}
-        <div className="bg-slate-950/90 rounded-xl p-3 text-[11px] border border-slate-800 flex flex-col gap-1.5 font-mono">
-          <div className="flex justify-between items-center text-slate-300 font-sans font-bold border-b border-slate-800/80 pb-1">
-            <span>Direct Bank Transfer (IMPS / NEFT)</span>
-            <span className="text-[10px] text-amber-400 font-bold">24x7</span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-400">Bank:</span>
-            <span className="font-bold text-white">{BANK_NAME}</span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-400">Branch:</span>
-            <span className="font-bold text-slate-300">{BANK_BRANCH}</span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-400">Account Holder:</span>
-            <span className="font-bold text-white">{BANK_HOLDER}</span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-400">Account No:</span>
-            <span className="font-bold text-amber-400">{BANK_ACC}</span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-400">IFSC Code:</span>
-            <span className="font-bold text-emerald-400">{BANK_IFSC}</span>
-          </div>
-        </div>
 
         {/* Step-by-Step Instructions */}
         <div className="bg-slate-950/60 rounded-xl p-3 text-[11px] text-slate-400 flex flex-col gap-1">
