@@ -42,12 +42,15 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Synchronously restore session from localStorage so refresh never flickers to logged-out state
+  // Synchronously restore session from localStorage ONLY if BOTH token AND user exist
   const [user, setUser] = useState<User | null>(() => {
     if (typeof window !== "undefined") {
       try {
+        const savedToken = localStorage.getItem("token");
         const savedUser = localStorage.getItem("user");
-        return savedUser ? JSON.parse(savedUser) : null;
+        if (savedToken && savedUser) {
+          return JSON.parse(savedUser);
+        }
       } catch (e) {
         return null;
       }
@@ -64,7 +67,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [loading, setLoading] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
-      // If we already have a saved token, loading can be brief while validating
       return !localStorage.getItem("token");
     }
     return true;
@@ -80,8 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     } catch (err: any) {
-      // ONLY clear session if server explicitly returned 401 (token expired/invalid) or 404 (user deleted)
-      // Never wipe session on server cold starts, 502/503 gateways, or network timeouts!
       if (err?.status === 401 || err?.status === 404) {
         console.warn("Session expired or unauthorized (401/404): logging out");
         if (typeof window !== "undefined") {
@@ -104,6 +104,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(savedToken);
       fetchProfile();
     } else {
+      // If no token exists, immediately clear any stale cached user
+      setUser(null);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("user");
+      }
       setLoading(false);
     }
   }, []);

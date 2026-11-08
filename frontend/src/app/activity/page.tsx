@@ -107,8 +107,9 @@ export default function ActivityCenterPage() {
 
   // Handle Daily Attendance Check-in Claim
   const handleClaimCheckin = async () => {
-    if (!user) {
-      alert("Please login to claim your daily check-in attendance bonus!");
+    const savedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!user || !savedToken) {
+      setClaimError("Your login session has expired. Please log in again to claim your daily bonus.");
       return;
     }
 
@@ -130,7 +131,11 @@ export default function ActivityCenterPage() {
       // Refresh attendance status to lock further claims today
       await fetchAttendanceStatus();
     } catch (err: any) {
-      setClaimError(err.message || "Failed to claim attendance bonus");
+      if (err?.message?.includes("Access token") || err?.status === 401) {
+        setClaimError("Your login session has expired. Please log in again to claim your daily bonus.");
+      } else {
+        setClaimError(err.message || "Failed to claim attendance bonus");
+      }
     } finally {
       setClaimLoading(false);
     }
@@ -139,7 +144,8 @@ export default function ActivityCenterPage() {
   // Handle Gift Code Redemption
   const handleRedeemGift = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
+    const savedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!user || !savedToken) {
       setGiftMessage({ type: "error", text: "Please log in to redeem member gift codes!" });
       return;
     }
@@ -302,14 +308,24 @@ export default function ActivityCenterPage() {
 
         {/* Error Alert */}
         {claimError && (
-          <div className="p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-bold text-center flex items-center justify-center gap-1.5 animate-in zoom-in-95">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{claimError}</span>
+          <div className="p-3 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-bold text-center flex flex-col items-center justify-center gap-2 animate-in zoom-in-95">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{claimError}</span>
+            </div>
+            {claimError.toLowerCase().includes("log in") && (
+              <Link
+                href="/login"
+                className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded-lg text-xs font-black shadow transition active:scale-95"
+              >
+                Log In Now &rarr;
+              </Link>
+            )}
           </div>
         )}
 
         {/* Claim Action Button (Daily Progress Enforced) */}
-        {!user ? (
+        {!user || (typeof window !== "undefined" && !localStorage.getItem("token")) ? (
           <Link
             href="/login"
             className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-black text-xs font-black shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 transition active:scale-98"
