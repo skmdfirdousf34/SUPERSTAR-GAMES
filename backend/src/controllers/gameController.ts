@@ -185,7 +185,7 @@ export class GameController {
         return;
       }
 
-      const result = await this.aviatorEngine.processCashout(betId);
+      const result = await this.aviatorEngine.processCashout(betId, undefined, req.user.id);
       res.json({ message: "Successfully cashed out!", result });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

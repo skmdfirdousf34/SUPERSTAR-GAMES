@@ -102,47 +102,75 @@ export class AviatorEngine {
   }
 
   /**
-   * Smart Crash Point Optimization before takeoff:
-   * Protects the operator from catastrophic losses on large bets,
-   * while allowing thrilling high multipliers (10x-50x) when player stakes are safe!
+   * Smart House Profit & Risk Governor:
+   * 1. If no real player bets in the round: let plane fly to thrilling high multipliers (5x-100x)!
+   * 2. If real player bets exist: mathematically cap crashPoint so House Net Profit >= Target Margin (default 20-30%).
+   * 3. Zero-Deficit Guarantee: Total payout in the round CANNOT exceed (Total Pool * (1 - House Margin)).
+   * 4. In-flight Live Exposure Monitor: If uncached high-roller bets threaten the pool, crash immediately.
    */
   private optimizeCrashPointForHouseProfit() {
-    if (this.riskMode === "PROVABLY_FAIR" || this.activeBets.size === 0) {
+    if (this.riskMode === "PROVABLY_FAIR") {
       return;
     }
 
     const betsArray = Array.from(this.activeBets.values());
     const totalPool = betsArray.reduce((sum, b) => sum + b.betAmount, 0);
 
-    // If total pool is heavy (e.g. > ₹2000), calculate safe crash ceiling
-    if (totalPool >= 1000) {
-      // Find the auto-cashouts of players
-      const autoCashouts = betsArray
-        .map((b) => b.autoCashout)
-        .filter((c): c is number => typeof c === "number" && c > 1.0);
+    // Case 1: No bets placed this round (empty round or 0 real stakes)
+    if (betsArray.length === 0 || totalPool <= 0) {
+      // Allow thrilling high multipliers (moonshots!) to show in history bar and hype players
+      return;
+    }
 
-      // We want some players to win (e.g. players who set 1.2x - 1.8x),
-      // but crash before extreme payouts (e.g. 2.0x - 3.5x)
-      if (autoCashouts.length > 0) {
-        autoCashouts.sort((a, b) => a - b);
-        // Let lower cashouts win, crash right before the highest exposure
-        const medianTarget = autoCashouts[0];
-        if (medianTarget && medianTarget < 3.0) {
-          // Crash slightly above the lowest winner so someone wins and celebrates
-          const safeCrash = Number((medianTarget + 0.15 + Math.random() * 0.4).toFixed(2));
-          this.crashPoint = Math.min(this.crashPoint, Math.max(1.15, safeCrash));
-        } else {
-          this.crashPoint = Number((1.20 + Math.random() * 0.8).toFixed(2));
-        }
-      } else {
-        // No auto-cashout set: keep multiplier in exciting 1.30x - 2.80x sweet spot
-        if (this.crashPoint > 4.0) {
-          this.crashPoint = Number((1.40 + Math.random() * 1.8).toFixed(2));
-        }
+    // Target Margin: 25% for BALANCED_PROFIT, 40% for CONSERVATIVE
+    const targetMargin = this.riskMode === "CONSERVATIVE" ? 0.40 : 0.25;
+    const maxAllowedTotalPayout = Math.min(
+      totalPool * (1 - targetMargin),
+      this.maxAllowableRoundPayout
+    );
+
+    // If maxAllowedTotalPayout <= 0 or tiny: force an instant crash
+    if (maxAllowedTotalPayout < 10) {
+      this.crashPoint = Number((1.01 + Math.random() * 0.08).toFixed(2));
+      return;
+    }
+
+    // Find the maximum safe multiplier where Total Payout <= maxAllowedTotalPayout
+    let safeCrashMultiplier = 1.05;
+    const testMultipliers: number[] = [];
+    for (let m = 1.10; m <= Math.min(this.crashPoint, 15.0); m = Number((m + 0.05).toFixed(2))) {
+      testMultipliers.push(m);
+    }
+
+    for (const m of testMultipliers) {
+      let potentialPayoutAtM = 0;
+
+      for (const bet of betsArray) {
+        // If bet has autoCashout <= m, they win (betAmount * autoCashout)
+        // If bet has autoCashout > m or no autoCashout, assume cashout at m
+        const effectiveMul = bet.autoCashout && bet.autoCashout <= m ? bet.autoCashout : m;
+        potentialPayoutAtM += bet.betAmount * effectiveMul;
       }
+
+      if (potentialPayoutAtM <= maxAllowedTotalPayout) {
+        safeCrashMultiplier = m;
+      } else {
+        // Multiplier m causes payout to exceed allowable profit limit!
+        break;
+      }
+    }
+
+    // Check if safeCrashMultiplier is too low (e.g. <= 1.15):
+    if (safeCrashMultiplier <= 1.15) {
+      // Instant crash: 1.00x - 1.12x (House keeps 100% of the pool)
+      this.crashPoint = Number((1.00 + Math.random() * 0.12).toFixed(2));
     } else {
-      // Total stakes are small or modest: safe to allow thrilling high multipliers (moonshots!)
-      // If natural crash point is high, let it fly to 10x-50x!
+      // Add slight jitter within safe profit ceiling
+      const jitter = Math.random() * 0.08;
+      this.crashPoint = Math.min(
+        this.crashPoint,
+        Number((safeCrashMultiplier - jitter).toFixed(2))
+      );
     }
   }
 
@@ -174,7 +202,37 @@ export class AviatorEngine {
       const multiplier = Math.max(1.0, Math.pow(Math.E, 0.075 * elapsed));
       this.currentMultiplier = Number(multiplier.toFixed(2));
 
-      // Check auto-cashouts
+      // 1. Live Dynamic Exposure Circuit Breaker:
+      // If remaining un-cashed bets at current multiplier would cause total payout to exceed house profit limit,
+      // trigger immediate crash!
+      if (this.riskMode !== "PROVABLY_FAIR" && this.activeBets.size > 0) {
+        const betsArray = Array.from(this.activeBets.values());
+        const totalPool = betsArray.reduce((sum, b) => sum + b.betAmount, 0);
+        const targetMargin = this.riskMode === "CONSERVATIVE" ? 0.40 : 0.25;
+        const maxAllowedTotalPayout = Math.min(
+          totalPool * (1 - targetMargin),
+          this.maxAllowableRoundPayout
+        );
+
+        let livePaidOut = 0;
+        let livePendingExposure = 0;
+
+        for (const bet of betsArray) {
+          if (bet.status === "CASHED_OUT") {
+            livePaidOut += bet.betAmount * (bet.cashoutMultiplier || 1.0);
+          } else if (bet.status === "PENDING") {
+            livePendingExposure += bet.betAmount * this.currentMultiplier;
+          }
+        }
+
+        // If total paid out + current live exposure exceeds safe limit, crash NOW!
+        if (livePaidOut + livePendingExposure >= maxAllowedTotalPayout) {
+          await this.handleCrash();
+          return;
+        }
+      }
+
+      // 2. Check auto-cashouts
       for (const [betId, bet] of this.activeBets.entries()) {
         if (
           bet.status === "PENDING" &&
@@ -185,7 +243,7 @@ export class AviatorEngine {
         }
       }
 
-      // Check if crashed
+      // 3. Check if reached natural crash point
       if (this.currentMultiplier >= this.crashPoint) {
         await this.handleCrash();
       } else {
@@ -279,7 +337,7 @@ export class AviatorEngine {
   /**
    * Cashout Handler
    */
-  public async processCashout(betId: string, cashoutAtMultiplier?: number) {
+  public async processCashout(betId: string, cashoutAtMultiplier?: number, requestingUserId?: string) {
     if (this.status !== "FLYING") {
       throw new Error("Cannot cash out when the flight is not active");
     }
@@ -287,6 +345,11 @@ export class AviatorEngine {
     const bet = this.activeBets.get(betId);
     if (!bet || bet.status !== "PENDING") {
       throw new Error("Bet not found or already cashed out");
+    }
+
+    // Security verification: A player cannot cash out another player's bet
+    if (requestingUserId && bet.userId !== requestingUserId) {
+      throw new Error("Unauthorized: You cannot cash out another player's bet");
     }
 
     const multiplier = cashoutAtMultiplier || this.currentMultiplier;
