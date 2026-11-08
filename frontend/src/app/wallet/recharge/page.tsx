@@ -52,7 +52,8 @@ export default function RechargePage() {
     return () => clearInterval(timer);
   }, []);
 
-  const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "skmdfirdous@ybl";
+  // Official platform recharge UPI ID
+  const DEMO_UPI = "skmdfirdous@ybl";
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(DEMO_UPI);
