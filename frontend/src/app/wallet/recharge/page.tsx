@@ -52,7 +52,7 @@ export default function RechargePage() {
     return () => clearInterval(timer);
   }, []);
 
-  const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "imrajsk514-3@oksbi";
+  const DEMO_UPI = process.env.NEXT_PUBLIC_PAYMENT_UPI_ID || "skmdfirdous@ybl";
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(DEMO_UPI);
@@ -229,23 +229,26 @@ export default function RechargePage() {
           <span className="text-emerald-400 text-[10px] font-bold">0% Fee</span>
         </div>
 
-        {/* Clean Official Payment QR Code (No Personal Name / No Avatar) */}
-        <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-inner my-1">
-          <div className="w-52 h-52 bg-white p-2 flex items-center justify-center rounded-xl overflow-hidden shadow border border-slate-100">
+        {/* Clean Official PhonePe UPI QR Code (Direct Merchant Scan) */}
+        <div className="flex flex-col items-center justify-center p-3 bg-gradient-to-b from-[#140b20] via-black to-black border border-purple-500/40 rounded-2xl shadow-xl my-1">
+          <div className="w-64 max-w-full rounded-xl overflow-hidden bg-black flex items-center justify-center border border-purple-500/30 shadow-lg">
             <img
-              src="/images/sbi_qr.jpg"
-              alt="Official Recharge UPI QR Code"
-              className="w-full h-full object-contain rounded-lg"
+              src="/images/phonepe_poster.jpg"
+              alt="Official PhonePe Recharge QR Code"
+              className="w-full h-auto object-contain rounded-xl"
               onError={(e) => {
                 // Fallback to dynamic clean QR if image fails
                 (e.target as HTMLImageElement).src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${DEMO_UPI}&pn=Superstar%20Games&am=${amount}&cu=INR`;
               }}
             />
           </div>
-          <span className="text-xs font-black text-slate-900 mt-2.5">
-            Scan QR to pay ₹{amount}
-          </span>
-          <span className="text-[10px] font-semibold text-slate-500">
+          <div className="flex items-center gap-2 mt-2 px-3 py-1 bg-purple-950/50 border border-purple-500/30 rounded-full">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="text-[11px] font-bold text-purple-200">
+              Pay ₹{amount} • Instant Wallet Credit
+            </span>
+          </div>
+          <span className="text-[10px] font-medium text-slate-400 mt-1">
             Supports PhonePe, Google Pay, Paytm & All UPI Apps
           </span>
         </div>

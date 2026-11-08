@@ -51,7 +51,7 @@ export default function DepositOperatorPage() {
 
   // Reject modal
   const [rejectingTx, setRejectingTx] = useState<PendingDeposit | null>(null);
-  const [rejectReason, setRejectReason] = useState("UTR not found in SBI account statement");
+  const [rejectReason, setRejectReason] = useState("UTR not found in statement / invalid transaction");
 
   const isAuthorized =
     user && (user.role === "STAFF_DEPOSIT" || user.role === "STAFF" || user.role === "ADMIN");
@@ -198,18 +198,17 @@ export default function DepositOperatorPage() {
         </div>
       </div>
 
-      {/* SBI Verification Reference Box */}
+      {/* Gateway Verification Reference Box */}
       <div className="mt-4 p-3 bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2">
-          <Building className="w-4 h-4 text-blue-400" />
-          <span className="text-slate-400">Target SBI Account:</span>
-          <span className="font-mono font-bold text-white">43606293375</span>
-          <span className="text-[10px] text-slate-500">(IFSC: SBIN0012395 - Mr. Sk Asraf Ali)</span>
+          <Building className="w-4 h-4 text-purple-400" />
+          <span className="text-slate-400">Payment Gateway:</span>
+          <span className="font-mono font-bold text-white">PhonePe Merchant UPI</span>
         </div>
         <div className="flex items-center gap-2">
           <QrCode className="w-4 h-4 text-amber-400" />
-          <span className="text-slate-400">Official UPI:</span>
-          <span className="font-mono font-bold text-amber-300">imrajsk514-3@oksbi</span>
+          <span className="text-slate-400">Official UPI ID:</span>
+          <span className="font-mono font-bold text-amber-300">skmdfirdous@ybl</span>
         </div>
       </div>
 

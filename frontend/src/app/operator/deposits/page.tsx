@@ -169,10 +169,10 @@ export default function DepositOperatorPage() {
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-[11px] font-mono flex justify-between items-center text-slate-300">
         <div>
           <span className="text-[9px] text-slate-400 uppercase block font-sans font-bold">
-            Receiving SBI Account
+            Official Payment Gateway
           </span>
-          <span className="text-white font-bold">A/C: 43606293375 (Sk Imraj)</span>
-          <span className="text-amber-400 block text-[10px]">UPI: imrajsk514-3@oksbi</span>
+          <span className="text-white font-bold">PhonePe Merchant UPI</span>
+          <span className="text-amber-400 block text-[10px]">UPI: skmdfirdous@ybl</span>
         </div>
         <div className="text-right">
           <span className="text-[9px] text-slate-400 uppercase block font-sans">Queue</span>
