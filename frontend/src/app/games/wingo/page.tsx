@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../context/AuthContext";
 import { useSocket } from "../../../context/SocketContext";
@@ -84,6 +84,10 @@ export default function WinGoPage() {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedBetType, setSelectedBetType] = useState<"COLOR" | "NUMBER" | "SIZE">("COLOR");
   const [selectedBetValue, setSelectedBetValue] = useState<string>("GREEN");
+  const selectedBetValueRef = useRef(selectedBetValue);
+  useEffect(() => {
+    selectedBetValueRef.current = selectedBetValue;
+  }, [selectedBetValue]);
   const [baseBalanceUnit, setBaseBalanceUnit] = useState<number>(10);
   const [betQuantity, setBetQuantity] = useState<number>(1);
   const [agreeRules, setAgreeRules] = useState<boolean>(true);
@@ -162,8 +166,28 @@ export default function WinGoPage() {
 
     socket.on("wingo_round_result", async (data) => {
       if (!isTargetMode(data)) return;
-      fetchData(selectedGameMode);
-      refreshUser();
+
+      // Instant optimistic history update so draw result shows without network lag
+      setHistory((prev) => {
+        if (prev.some((h) => h.period === data.period)) return prev;
+        return [
+          {
+            id: data.period,
+            period: data.period,
+            winningNumber: data.winningNumber,
+            winningColor: data.winningColor,
+            winningSize: data.winningSize,
+            createdAt: new Date().toISOString(),
+          },
+          ...prev.slice(0, 49),
+        ];
+      });
+
+      // Background sync after short delay
+      setTimeout(() => {
+        fetchData(selectedGameMode);
+        refreshUser();
+      }, 500);
 
       if (user && data.resolvedBets) {
         const myWin = data.resolvedBets.find(
@@ -179,7 +203,7 @@ export default function WinGoPage() {
             winAmount: myWin.winAmount,
             contractAmount: myWin.contractAmount,
             multiplier: myWin.multiplier,
-            selectValue: myWin.selectValue || selectedBetValue,
+            selectValue: myWin.selectValue || selectedBetValueRef.current,
           });
         }
       }
@@ -191,7 +215,7 @@ export default function WinGoPage() {
       socket.off("wingo_betting_locked");
       socket.off("wingo_round_result");
     };
-  }, [socket, user, selectedGameMode, selectedBetValue]);
+  }, [socket, user, selectedGameMode]);
 
   const handleManualRefreshBalance = async () => {
     setIsRefreshingBalance(true);
@@ -987,8 +1011,8 @@ export default function WinGoPage() {
 
       {/* 9. AUTHENTIC DAMAN BET SLIP MODAL (With Exact Rules & Fee Breakdown) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in">
-          <div className="w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in">
+          <div className="w-full max-w-md bg-white rounded-t-3xl p-5 pb-8 shadow-2xl animate-in slide-in-from-bottom duration-200 border-t border-slate-200">
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -1132,7 +1156,7 @@ export default function WinGoPage() {
             </div>
 
             {/* Footer with Total and Confirm Button */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 pb-2">
               <div>
                 <span className="text-[10px] text-slate-400 block font-medium">Total Spend</span>
                 <span className="text-xl font-black text-[#fe4343] font-mono">
@@ -1142,15 +1166,17 @@ export default function WinGoPage() {
 
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition"
                 >
                   Cancel
                 </button>
                 <button
+                  type="button"
                   disabled={isSubmittingBet}
                   onClick={handleConfirmBet}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff6854] to-[#fe4a3d] text-white text-xs font-black shadow-lg shadow-red-200 active:scale-95 transition disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff6854] to-[#fe4a3d] hover:from-[#fe5043] hover:to-[#e0312b] text-white text-xs font-black shadow-lg shadow-red-200 active:scale-95 transition disabled:opacity-50"
                 >
                   {isSubmittingBet ? "Placing..." : "Confirm Bet"}
                 </button>
@@ -1162,7 +1188,7 @@ export default function WinGoPage() {
 
       {/* 10. EXACT DAMAN WIN-GO RULES MODAL (Images 1 & 2 from User) */}
       {isRulesModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
           <div className="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl relative overflow-hidden flex flex-col items-center max-h-[85vh] animate-in zoom-in-95 duration-150">
             {/* Header Red Pill */}
             <div className="px-5 py-1.5 rounded-b-2xl bg-[#fe5043] text-white text-xs font-black tracking-widest uppercase -mt-5 mb-4 shadow-md">
@@ -1219,7 +1245,7 @@ export default function WinGoPage() {
 
       {/* 11. WINNING RECEIPT POPUP (Shows calculations following the exact rule!) */}
       {winningDetails && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
           <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-150">
             <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 text-black flex items-center justify-center text-2xl font-black shadow-lg shadow-amber-200 mb-2">
               🏆

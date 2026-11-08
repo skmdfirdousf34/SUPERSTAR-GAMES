@@ -80,9 +80,20 @@ export default function AviatorPage() {
   const [win2Amount, setWin2Amount] = useState<number>(0);
   const [loading2, setLoading2] = useState<boolean>(false);
 
-  // Canvas
+  // Canvas & High-Performance Animation Refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const statusRef = useRef<"BETTING" | "FLYING" | "CRASHED">(status);
+  const targetMultiplierRef = useRef<number>(currentMultiplier);
+  const countdownRef = useRef<number>(countdown);
+  const lastStateUpdateRef = useRef<number>(0);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+  useEffect(() => {
+    countdownRef.current = countdown;
+  }, [countdown]);
 
   const fetchData = async () => {
     try {
@@ -112,6 +123,9 @@ export default function AviatorPage() {
     if (!socket) return;
 
     socket.on("aviator_betting_start", (data) => {
+      statusRef.current = "BETTING";
+      targetMultiplierRef.current = 1.0;
+      countdownRef.current = data.countdown || 5;
       setStatus("BETTING");
       setCurrentMultiplier(1.0);
       setCountdown(data.countdown || 5);
@@ -127,21 +141,35 @@ export default function AviatorPage() {
     });
 
     socket.on("aviator_countdown_tick", (data) => {
+      statusRef.current = "BETTING";
+      countdownRef.current = data.countdown;
       setStatus("BETTING");
       setCountdown(data.countdown);
     });
 
     socket.on("aviator_flight_start", () => {
+      statusRef.current = "FLYING";
+      targetMultiplierRef.current = 1.0;
       setStatus("FLYING");
       setCurrentMultiplier(1.0);
     });
 
     socket.on("aviator_tick", (data) => {
-      setStatus("FLYING");
-      setCurrentMultiplier(data.multiplier);
+      statusRef.current = "FLYING";
+      targetMultiplierRef.current = data.multiplier;
+
+      // Throttle React state update to ~100ms for smooth 60fps rendering without React thrashing
+      const now = Date.now();
+      if (now - lastStateUpdateRef.current > 100) {
+        lastStateUpdateRef.current = now;
+        setStatus("FLYING");
+        setCurrentMultiplier(data.multiplier);
+      }
     });
 
     socket.on("aviator_crashed", (data) => {
+      statusRef.current = "CRASHED";
+      targetMultiplierRef.current = data.crashPoint;
       setStatus("CRASHED");
       setCurrentMultiplier(data.crashPoint);
       fetchData();
@@ -275,41 +303,72 @@ export default function AviatorPage() {
     }
   };
 
-  // Canvas Flight Animation (Spribe Red Plane with "X" on wing)
+  // 60-FPS Decoupled Hardware-Accelerated Canvas Engine (Zero Lag / Smooth Flight)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
-    let width = (canvas.width = canvas.parentElement?.clientWidth || 360);
-    let height = (canvas.height = 230);
+    let width = 360;
+    let height = 230;
+
+    const updateCanvasSize = () => {
+      if (!canvas || !canvas.parentElement) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const newW = Math.floor(rect.width) || 360;
+      const newH = 230;
+      if (canvas.width !== newW || canvas.height !== newH) {
+        width = canvas.width = newW;
+        height = canvas.height = newH;
+      }
+    };
+
+    updateCanvasSize();
+    window.addEventListener("resize", updateCanvasSize);
+
+    let displayedMultiplier = 1.0;
+    let running = true;
 
     const render = () => {
+      if (!running) return;
+
+      const currentStatus = statusRef.current;
+      const targetMul = targetMultiplierRef.current;
+      const currentCountdown = countdownRef.current;
+
+      // Smoothly interpolate displayed multiplier at 60 FPS
+      if (currentStatus === "FLYING") {
+        displayedMultiplier += (targetMul - displayedMultiplier) * 0.22;
+        if (displayedMultiplier < 1.0) displayedMultiplier = 1.0;
+      } else if (currentStatus === "CRASHED") {
+        displayedMultiplier = targetMul;
+      } else {
+        displayedMultiplier = 1.0;
+      }
+
       ctx.clearRect(0, 0, width, height);
 
       // 1. Spribe Black/Purple Gradient Background
-      const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-      bgGrad.addColorStop(0, "#0e0714");
-      bgGrad.addColorStop(0.5, "#140a1d");
-      bgGrad.addColorStop(1, "#07040a");
-      ctx.fillStyle = bgGrad;
+      ctx.fillStyle = "#0d0614";
       ctx.fillRect(0, 0, width, height);
 
       // 2. Light radial speed lines from bottom left
       ctx.strokeStyle = "rgba(168, 85, 247, 0.08)";
       ctx.lineWidth = 1;
-      for (let angle = 0; angle <= Math.PI / 2; angle += Math.PI / 24) {
+      const cx = 20;
+      const cy = height - 20;
+      for (let angle = 0; angle <= Math.PI / 2; angle += Math.PI / 18) {
         ctx.beginPath();
-        ctx.moveTo(20, height - 20);
+        ctx.moveTo(cx, cy);
         ctx.lineTo(
-          20 + Math.cos(angle) * (width * 1.5),
-          height - 20 - Math.sin(angle) * (height * 1.5)
+          cx + Math.cos(angle) * (width * 1.5),
+          cy - Math.sin(angle) * (height * 1.5)
         );
         ctx.stroke();
       }
 
-      if (status === "BETTING") {
+      if (currentStatus === "BETTING") {
         // Waiting bar
         ctx.fillStyle = "rgba(239, 68, 68, 0.9)";
         ctx.font = "bold 13px sans-serif";
@@ -318,10 +377,10 @@ export default function AviatorPage() {
 
         ctx.fillStyle = "#ffffff";
         ctx.font = "bold 26px monospace";
-        ctx.fillText(`${countdown}s`, width / 2, height / 2 + 25);
-      } else if (status === "FLYING" || status === "CRASHED") {
+        ctx.fillText(`${currentCountdown}s`, width / 2, height / 2 + 25);
+      } else if (currentStatus === "FLYING" || currentStatus === "CRASHED") {
         // Curve coordinates
-        const progress = Math.min(1.0, (currentMultiplier - 1.0) / 6.0);
+        const progress = Math.min(1.0, (displayedMultiplier - 1.0) / 6.0);
         const startX = 20;
         const startY = height - 20;
         const endX = startX + (width - 70) * Math.min(1.0, progress * 1.1 + 0.1);
@@ -352,7 +411,7 @@ export default function AviatorPage() {
         ctx.stroke();
 
         // Draw Spribe Propeller Airplane
-        if (status === "FLYING") {
+        if (currentStatus === "FLYING") {
           ctx.save();
           ctx.translate(endX, endY);
           const angle = -Math.atan2(startY - endY, endX - startX) * 0.5;
@@ -388,7 +447,7 @@ export default function AviatorPage() {
           ctx.fillText("X", -3, -7);
 
           ctx.restore();
-        } else if (status === "CRASHED") {
+        } else if (currentStatus === "CRASHED") {
           ctx.fillStyle = "#ef4444";
           ctx.font = "bold 22px sans-serif";
           ctx.textAlign = "center";
@@ -399,14 +458,16 @@ export default function AviatorPage() {
       animationFrameRef.current = requestAnimationFrame(render);
     };
 
-    render();
+    animationFrameRef.current = requestAnimationFrame(render);
 
     return () => {
+      running = false;
+      window.removeEventListener("resize", updateCanvasSize);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [status, currentMultiplier, countdown]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#07040a] text-white pb-20 select-none flex flex-col">
