@@ -33,6 +33,10 @@ export function createAdminRoutes(wingoEngine: WinGoEngine, aviatorEngine: Aviat
   router.post("/users/freeze", requireAdmin, AdminController.toggleFreezeUser);
   router.post("/users/adjust-balance", requireAdmin, AdminController.manualAdjustBalance);
 
+  // OWNER PROFIT SETTLEMENT / PAYOUT RECORDING (Super Admin Only)
+  router.get("/owner-settlements", requireAdmin, AdminController.getOwnerSettlements);
+  router.post("/owner-settlements", requireAdmin, AdminController.recordOwnerSettlement);
+
   // 4. 6-MONTH DATA RETENTION, AUTOMATED BACKUPS & AUDIT EXPORTS (Super Admin Only)
   router.get("/data-retention/stats", requireAdmin, AdminController.getDataRetentionStats);
   router.post("/data-retention/backup", requireAdmin, AdminController.triggerDatabaseBackup);

@@ -58,7 +58,18 @@ interface AdminStats {
   pendingWithdrawalsAmount: number;
   pendingDepositsCount: number;
   pendingDepositsAmount: number;
+  totalGrossProfit?: number;
+  totalOwnerWithdrawn?: number;
+  ownerWithdrawalsCount?: number;
   safeWithdrawableProfit: number;
+}
+
+interface OwnerSettlement {
+  id: string;
+  amount: number;
+  paymentMethod: string;
+  adminNote: string;
+  createdAt: string;
 }
 
 interface PendingDeposit {
@@ -224,6 +235,13 @@ export default function AdminPage() {
   } | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>("");
 
+  // Owner Settlement / Profit Payout state
+  const [showSettlementModal, setShowSettlementModal] = useState<boolean>(false);
+  const [settlementAmount, setSettlementAmount] = useState<number>(0);
+  const [settlementNote, setSettlementNote] = useState<string>("");
+  const [settlementLoading, setSettlementLoading] = useState<boolean>(false);
+  const [settlementsList, setSettlementsList] = useState<OwnerSettlement[]>([]);
+
   const fetchAdminData = async () => {
     try {
       setLoading(true);
@@ -255,11 +273,51 @@ export default function AdminPage() {
       if (retentionData) {
         setRetentionStats(retentionData);
       }
+      apiRequest<OwnerSettlement[]>("/admin/owner-settlements")
+        .then((data) => setSettlementsList(data || []))
+        .catch(() => {});
     } catch (err: any) {
       console.error(err);
       setActionMsg(err.message || "Failed to load admin data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRecordSettlement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (settlementAmount <= 0) {
+      alert("Please enter a valid payout amount greater than ₹0");
+      return;
+    }
+    if (stats && settlementAmount > stats.safeWithdrawableProfit) {
+      alert(`Amount ₹${settlementAmount} exceeds current safe profit (₹${stats.safeWithdrawableProfit.toFixed(2)})`);
+      return;
+    }
+
+    try {
+      setSettlementLoading(true);
+      const res = await apiRequest<{
+        message: string;
+        settlement: OwnerSettlement;
+        remainingSafeProfit: number;
+      }>("/admin/owner-settlements", {
+        method: "POST",
+        body: JSON.stringify({
+          amount: settlementAmount,
+          note: settlementNote || "Owner profit payout recorded to personal bank",
+        }),
+      });
+
+      setActionMsg(`✅ ${res.message}`);
+      setShowSettlementModal(false);
+      setSettlementAmount(0);
+      setSettlementNote("");
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message || "Failed to record owner settlement");
+    } finally {
+      setSettlementLoading(false);
     }
   };
 
@@ -585,21 +643,35 @@ export default function AdminPage() {
           </div>
 
           {/* Card 2: Safe Withdrawable Profit */}
-          <div className="bg-gradient-to-br from-amber-950/30 via-slate-900 to-slate-950 border border-amber-500/30 rounded-2xl p-3.5 shadow-lg relative overflow-hidden">
-            <div className="flex items-center justify-between text-amber-300 text-[10px] font-bold uppercase tracking-wider">
-              <span className="flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-400" /> Safe Owner Profit
-              </span>
-              <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
-                Withdrawable
-              </span>
+          <div className="bg-gradient-to-br from-amber-950/30 via-slate-900 to-slate-950 border border-amber-500/30 rounded-2xl p-3.5 shadow-lg relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                <span className="flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-400" /> Safe Owner Profit
+                </span>
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
+                  Withdrawable
+                </span>
+              </div>
+              <div className="text-2xl font-black text-amber-400 mt-1 font-mono">
+                ₹{stats.safeWithdrawableProfit.toFixed(2)}
+              </div>
+              <div className="text-[9px] text-slate-400 mt-0.5 flex justify-between font-mono">
+                <span>Withdrawn: ₹{(stats.totalOwnerWithdrawn || 0).toFixed(0)}</span>
+                <span>Gross: ₹{(stats.totalGrossProfit || (stats.safeWithdrawableProfit + (stats.totalOwnerWithdrawn || 0))).toFixed(0)}</span>
+              </div>
             </div>
-            <div className="text-2xl font-black text-amber-400 mt-1 font-mono">
-              ₹{stats.safeWithdrawableProfit.toFixed(2)}
-            </div>
-            <div className="text-[9px] text-slate-400 mt-1 leading-tight">
-              Safe to withdraw to your personal bank without touching user deposits.
-            </div>
+
+            <button
+              onClick={() => {
+                setSettlementAmount(Math.floor(stats.safeWithdrawableProfit));
+                setShowSettlementModal(true);
+              }}
+              className="mt-2 w-full py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-[10px] font-black rounded-lg shadow transition active:scale-98 flex items-center justify-center gap-1"
+            >
+              <ArrowDownToLine className="w-3 h-3" />
+              <span>Record Profit Payout</span>
+            </button>
           </div>
 
           {/* Card 3: Total Players & Active Liability */}
@@ -767,6 +839,10 @@ export default function AdminPage() {
                   <span>Pending Withdrawals in Queue:</span>
                   <span>-₹{stats.pendingWithdrawalsAmount.toFixed(2)}</span>
                 </div>
+                <div className="flex justify-between text-amber-300 mt-1">
+                  <span>Already Withdrawn by Owner:</span>
+                  <span>-₹{(stats.totalOwnerWithdrawn || 0).toFixed(2)}</span>
+                </div>
                 <div className="border-t border-amber-500/30 my-1.5 pt-1.5 flex justify-between font-black text-amber-400 text-sm">
                   <span>Safe Withdrawable Company Profit:</span>
                   <span>₹{stats.safeWithdrawableProfit.toFixed(2)}</span>
@@ -785,6 +861,38 @@ export default function AdminPage() {
                 request withdrawal tomorrow, your bank account will have 100% sufficient funds.
               </span>
             </div>
+
+            {/* Past Owner Payouts Table */}
+            {settlementsList.length > 0 && (
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <History className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Owner Profit Payouts Ledger</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-amber-400">
+                    Total Settled: ₹{(stats.totalOwnerWithdrawn || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+                  {settlementsList.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono"
+                    >
+                      <div>
+                        <div className="text-white font-bold">₹{s.amount.toFixed(2)}</div>
+                        <div className="text-[9px] text-slate-500 font-sans">{s.adminNote || "Owner withdrawal"}</div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-emerald-400 text-[9px] font-bold block">PAID TO OWNER</span>
+                        <span className="text-[9px] text-slate-500">{new Date(s.createdAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1788,6 +1896,89 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: RECORD OWNER PROFIT SETTLEMENT */}
+      {showSettlementModal && stats && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-amber-500/40 rounded-2xl p-5 shadow-2xl flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 className="font-extrabold text-sm text-amber-400 flex items-center gap-1.5">
+                <ArrowDownToLine className="w-4 h-4" />
+                <span>Record Profit Payout</span>
+              </h3>
+              <button
+                onClick={() => setShowSettlementModal(false)}
+                className="text-slate-500 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Jab aap company bank/UPI se personal account mein profit transfer karein, toh yahan record enter kar dein taaki{" "}
+              <strong className="text-amber-400">Safe Owner Profit</strong> accurate rahe aur future profit double-count na ho.
+            </p>
+
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs font-mono">
+              <span className="text-slate-400">Available to Withdraw:</span>
+              <span className="text-amber-400 font-bold">₹{stats.safeWithdrawableProfit.toFixed(2)}</span>
+            </div>
+
+            <form onSubmit={handleRecordSettlement} className="flex flex-col gap-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                  Amount to Record (₹)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={stats.safeWithdrawableProfit}
+                  step="any"
+                  value={settlementAmount || ""}
+                  onChange={(e) => setSettlementAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="e.g. 5000"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-amber-400 font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                  Note / Bank Reference (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={settlementNote}
+                  onChange={(e) => setSettlementNote(e.target.value)}
+                  placeholder="e.g. Transferred to Personal HDFC / PhonePe"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowSettlementModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    settlementLoading ||
+                    settlementAmount <= 0 ||
+                    settlementAmount > stats.safeWithdrawableProfit
+                  }
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-black text-xs font-black shadow disabled:opacity-50"
+                >
+                  {settlementLoading ? "Recording..." : "Confirm & Deduct"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

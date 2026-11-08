@@ -84,11 +84,24 @@ export class AdminController {
       const pendingDepositsCount = pendingDepositsAgg._count.id || 0;
       const pendingDepositsAmount = pendingDepositsAgg._sum.amount || 0;
 
-      // 9. Safe-to-Withdraw Company Profit (Real Cash Free Flow)
-      // Math: (All deposits received) - (All withdrawals paid) - (User wallet liabilities) - (Pending withdrawals)
-      const safeWithdrawableProfit = Math.max(
+      // 9. Total Owner Withdrawals (Settled / Taken Out of Bank)
+      const ownerWithdrawalsAgg = await prisma.transaction.aggregate({
+        where: { type: "OWNER_WITHDRAWAL", status: "COMPLETED" },
+        _sum: { amount: true },
+        _count: { id: true },
+      });
+      const totalOwnerWithdrawn = ownerWithdrawalsAgg._sum.amount || 0;
+      const ownerWithdrawalsCount = ownerWithdrawalsAgg._count.id || 0;
+
+      // 10. Safe-to-Withdraw Company Profit (Real Cash Free Flow)
+      // Math: (All deposits received) - (All withdrawals paid) - (User wallet liabilities) - (Pending withdrawals) - (Already withdrawn by owner)
+      const totalGrossProfit = Math.max(
         0,
         depositSum - withdrawSum - totalUserBalance - pendingWithdrawalsAmount
+      );
+      const safeWithdrawableProfit = Math.max(
+        0,
+        totalGrossProfit - totalOwnerWithdrawn
       );
 
       res.json({
@@ -106,6 +119,9 @@ export class AdminController {
         pendingWithdrawalsAmount,
         pendingDepositsCount,
         pendingDepositsAmount,
+        totalGrossProfit,
+        totalOwnerWithdrawn,
+        ownerWithdrawalsCount,
         safeWithdrawableProfit,
       });
     } catch (err: any) {
@@ -361,6 +377,103 @@ export class AdminController {
       res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
       res.setHeader("X-Record-Count", recordCount.toString());
       res.status(200).send(csvContent);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  /**
+   * Get Past Owner Profit Settlements
+   */
+  static async getOwnerSettlements(_req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const settlements = await prisma.transaction.findMany({
+        where: { type: "OWNER_WITHDRAWAL" },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      res.json(settlements);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  /**
+   * Record an Owner Profit Settlement (Taking Profit Out of Company Account)
+   */
+  static async recordOwnerSettlement(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const { amount, note, paymentMethod } = req.body;
+      const numAmount = parseFloat(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        res.status(400).json({ error: "Please enter a valid amount greater than ₹0" });
+        return;
+      }
+
+      // Re-verify current live safe profit to prevent overdraft
+      const [userWallets, totalDeposits, totalWithdrawals, pendingWithdrawalsAgg, ownerWithdrawalsAgg] =
+        await Promise.all([
+          prisma.wallet.aggregate({
+            where: { user: { role: "USER" } },
+            _sum: { balance: true },
+          }),
+          prisma.transaction.aggregate({
+            where: { type: "DEPOSIT", status: "APPROVED" },
+            _sum: { amount: true },
+          }),
+          prisma.transaction.aggregate({
+            where: { type: "WITHDRAWAL", status: "COMPLETED" },
+            _sum: { amount: true },
+          }),
+          prisma.transaction.aggregate({
+            where: { type: "WITHDRAWAL", status: "PENDING" },
+            _sum: { amount: true },
+          }),
+          prisma.transaction.aggregate({
+            where: { type: "OWNER_WITHDRAWAL", status: "COMPLETED" },
+            _sum: { amount: true },
+          }),
+        ]);
+
+      const totalUserBalance = userWallets._sum.balance || 0;
+      const depositSum = totalDeposits._sum.amount || 0;
+      const withdrawSum = totalWithdrawals._sum.amount || 0;
+      const pendingWithdrawalsAmount = pendingWithdrawalsAgg._sum.amount || 0;
+      const totalOwnerWithdrawn = ownerWithdrawalsAgg._sum.amount || 0;
+
+      const totalGrossProfit = Math.max(
+        0,
+        depositSum - withdrawSum - totalUserBalance - pendingWithdrawalsAmount
+      );
+      const safeWithdrawableProfit = Math.max(0, totalGrossProfit - totalOwnerWithdrawn);
+
+      if (numAmount > safeWithdrawableProfit) {
+        res.status(400).json({
+          error: `Requested amount ₹${numAmount.toFixed(2)} exceeds current Safe Withdrawable Profit (₹${safeWithdrawableProfit.toFixed(2)})`,
+        });
+        return;
+      }
+
+      const settlement = await prisma.transaction.create({
+        data: {
+          userId: req.user.id,
+          type: "OWNER_WITHDRAWAL",
+          amount: numAmount,
+          status: "COMPLETED",
+          paymentMethod: paymentMethod || "BANK_TRANSFER",
+          adminNote: note || "Owner profit payout recorded to personal bank",
+        },
+      });
+
+      res.json({
+        message: `Owner profit payout of ₹${numAmount.toFixed(2)} recorded successfully!`,
+        settlement,
+        remainingSafeProfit: Math.max(0, safeWithdrawableProfit - numAmount),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
