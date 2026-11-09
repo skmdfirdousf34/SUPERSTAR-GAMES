@@ -26,9 +26,11 @@ export class AviatorEngine {
   private startTime: number = 0;
   private activeBets: Map<string, ActiveBet> = new Map();
 
-  // House Risk Control
+  // House Risk Control & Live Zero-Loss Accounting
   public riskMode: AviatorRiskMode = "BALANCED_PROFIT";
   public maxAllowableRoundPayout: number = 20000; // Max ₹20,000 risk cap per round
+  public roundTotalPool: number = 0;
+  public roundTotalPaidOut: number = 0;
 
   constructor(io: Server) {
     this.io = io;
@@ -65,6 +67,8 @@ export class AviatorEngine {
     this.currentMultiplier = 1.0;
     this.bettingCountdown = 5;
     this.activeBets.clear();
+    this.roundTotalPool = 0;
+    this.roundTotalPaidOut = 0;
 
     const roundNum = `AV-${Date.now().toString().slice(-8)}`;
     this.roundNumber = roundNum;
@@ -102,9 +106,9 @@ export class AviatorEngine {
   }
 
   /**
-   * Smart House Profit & Risk Governor:
+   * Smart House Profit & Risk Governor (Iron-Clad Zero-Loss Engine):
    * 1. If no real player bets in the round: let plane fly to thrilling high multipliers (5x-100x)!
-   * 2. If real player bets exist: mathematically cap crashPoint so House Net Profit >= Target Margin (default 20-30%).
+   * 2. If real player bets exist: mathematically cap crashPoint so House Net Profit >= Target Margin (default 25-40%).
    * 3. Zero-Deficit Guarantee: Total payout in the round CANNOT exceed (Total Pool * (1 - House Margin)).
    * 4. In-flight Live Exposure Monitor: If uncached high-roller bets threaten the pool, crash immediately.
    */
@@ -115,6 +119,7 @@ export class AviatorEngine {
 
     const betsArray = Array.from(this.activeBets.values());
     const totalPool = betsArray.reduce((sum, b) => sum + b.betAmount, 0);
+    this.roundTotalPool = totalPool;
 
     // Case 1: No bets placed this round (empty round or 0 real stakes)
     if (betsArray.length === 0 || totalPool <= 0) {
@@ -124,21 +129,24 @@ export class AviatorEngine {
 
     // Target Margin: 25% for BALANCED_PROFIT, 40% for CONSERVATIVE
     const targetMargin = this.riskMode === "CONSERVATIVE" ? 0.40 : 0.25;
+    // ABSOLUTE ZERO-LOSS CONSTRAINT: Total payouts in this round CANNOT exceed (Pool * (1 - Margin))
     const maxAllowedTotalPayout = Math.min(
-      totalPool * (1 - targetMargin),
+      Number((totalPool * (1 - targetMargin)).toFixed(2)),
       this.maxAllowableRoundPayout
     );
 
-    // If maxAllowedTotalPayout <= 0 or tiny: force an instant crash
-    if (maxAllowedTotalPayout < 10) {
-      this.crashPoint = Number((1.01 + Math.random() * 0.08).toFixed(2));
+    // If only 1 bet exists, or if the smallest possible cashout (1.01x) of any bet exceeds maxAllowedTotalPayout:
+    // It is mathematically impossible for anyone to cash out without breaching margin -> Crash at 1.00x!
+    const minPossiblePayoutIfAnyCashout = Math.min(...betsArray.map((b) => b.betAmount * 1.01));
+    if (minPossiblePayoutIfAnyCashout > maxAllowedTotalPayout) {
+      this.crashPoint = 1.00;
       return;
     }
 
-    // Find the maximum safe multiplier where Total Payout <= maxAllowedTotalPayout
-    let safeCrashMultiplier = 1.05;
+    // Find the highest multiplier m where Total Payout <= maxAllowedTotalPayout
+    let safeCrashMultiplier = 1.00;
     const testMultipliers: number[] = [];
-    for (let m = 1.10; m <= Math.min(this.crashPoint, 15.0); m = Number((m + 0.05).toFixed(2))) {
+    for (let m = 1.05; m <= Math.min(this.crashPoint, 15.0); m = Number((m + 0.05).toFixed(2))) {
       testMultipliers.push(m);
     }
 
@@ -146,8 +154,8 @@ export class AviatorEngine {
       let potentialPayoutAtM = 0;
 
       for (const bet of betsArray) {
-        // If bet has autoCashout <= m, they win (betAmount * autoCashout)
-        // If bet has autoCashout > m or no autoCashout, assume cashout at m
+        // If bet has autoCashout <= m, they would cash out at autoCashout
+        // If bet has no autoCashout or autoCashout > m, worst-case is they cash out right before m
         const effectiveMul = bet.autoCashout && bet.autoCashout <= m ? bet.autoCashout : m;
         potentialPayoutAtM += bet.betAmount * effectiveMul;
       }
@@ -160,17 +168,12 @@ export class AviatorEngine {
       }
     }
 
-    // Check if safeCrashMultiplier is too low (e.g. <= 1.15):
-    if (safeCrashMultiplier <= 1.15) {
-      // Instant crash: 1.00x - 1.12x (House keeps 100% of the pool)
-      this.crashPoint = Number((1.00 + Math.random() * 0.12).toFixed(2));
+    // If safeCrashMultiplier is too low (e.g. <= 1.04), instant crash at 1.00x (takeoff)
+    if (safeCrashMultiplier <= 1.04) {
+      this.crashPoint = 1.00;
     } else {
-      // Add slight jitter within safe profit ceiling
-      const jitter = Math.random() * 0.08;
-      this.crashPoint = Math.min(
-        this.crashPoint,
-        Number((safeCrashMultiplier - jitter).toFixed(2))
-      );
+      // Ensure crashPoint never exceeds safeCrashMultiplier
+      this.crashPoint = Math.min(this.crashPoint, safeCrashMultiplier);
     }
   }
 
@@ -202,66 +205,47 @@ export class AviatorEngine {
       const multiplier = Math.max(1.0, Math.pow(Math.E, 0.075 * elapsed));
       this.currentMultiplier = Number(multiplier.toFixed(2));
 
-      // 1. Live Dynamic Exposure Circuit Breaker:
-      // If remaining un-cashed bets at current multiplier would cause total payout to exceed house profit limit,
-      // trigger immediate crash!
-      if (this.riskMode !== "PROVABLY_FAIR" && this.activeBets.size > 0) {
-        const betsArray = Array.from(this.activeBets.values());
-        const totalPool = betsArray.reduce((sum, b) => sum + b.betAmount, 0);
-        const targetMargin = this.riskMode === "CONSERVATIVE" ? 0.40 : 0.25;
-        const maxAllowedTotalPayout = Math.min(
-          totalPool * (1 - targetMargin),
-          this.maxAllowableRoundPayout
-        );
-
-        let livePaidOut = 0;
-        let livePendingExposure = 0;
-
-        for (const bet of betsArray) {
-          if (bet.status === "CASHED_OUT") {
-            livePaidOut += bet.betAmount * (bet.cashoutMultiplier || 1.0);
-          } else if (bet.status === "PENDING") {
-            livePendingExposure += bet.betAmount * this.currentMultiplier;
-          }
-        }
-
-        // If total paid out + current live exposure exceeds safe limit, crash NOW!
-        if (livePaidOut + livePendingExposure >= maxAllowedTotalPayout) {
-          await this.handleCrash();
-          return;
-        }
+      // 1. Natural Crash Point reached: Crash immediately!
+      if (this.currentMultiplier >= this.crashPoint) {
+        await this.handleCrash();
+        return;
       }
 
-      // 2. Check auto-cashouts
+      // 2. Check auto-cashouts strictly for targets that are < crashPoint
       for (const [betId, bet] of this.activeBets.entries()) {
         if (
           bet.status === "PENDING" &&
           bet.autoCashout &&
-          this.currentMultiplier >= bet.autoCashout
+          this.currentMultiplier >= bet.autoCashout &&
+          bet.autoCashout < this.crashPoint
         ) {
           await this.processCashout(betId, bet.autoCashout);
+          if (this.status === "CRASHED") return;
         }
       }
 
-      // 3. Check if reached natural crash point
-      if (this.currentMultiplier >= this.crashPoint) {
-        await this.handleCrash();
-      } else {
-        this.io.emit("aviator_tick", {
-          multiplier: this.currentMultiplier,
-        });
-      }
+      // 3. Emit live flight tick
+      this.io.emit("aviator_tick", {
+        multiplier: this.currentMultiplier,
+      });
     }, 80);
   }
 
   private async handleCrash() {
-    if (this.loopInterval) clearInterval(this.loopInterval);
+    if (this.loopInterval) {
+      clearInterval(this.loopInterval);
+      this.loopInterval = null;
+    }
     this.status = "CRASHED";
+
+    // Set crashPoint to actual current multiplier if crashed by live safety guard
+    this.crashPoint = Math.min(this.crashPoint, Math.max(1.00, this.currentMultiplier));
 
     await prisma.aviatorRound.update({
       where: { id: this.currentRoundId },
       data: {
         status: "CRASHED",
+        crashPoint: this.crashPoint,
         crashTime: new Date(),
       },
     });
@@ -324,6 +308,7 @@ export class AviatorEngine {
       autoCashout: bet.autoCashout,
       status: "PENDING",
     });
+    this.roundTotalPool += betAmount;
 
     this.io.emit("aviator_new_bet", {
       betId: bet.id,
@@ -335,7 +320,7 @@ export class AviatorEngine {
   }
 
   /**
-   * Cashout Handler
+   * Cashout Handler (with Iron-Clad Zero-Loss House Guard)
    */
   public async processCashout(betId: string, cashoutAtMultiplier?: number, requestingUserId?: string) {
     if (this.status !== "FLYING") {
@@ -353,27 +338,47 @@ export class AviatorEngine {
     }
 
     const multiplier = cashoutAtMultiplier || this.currentMultiplier;
-    if (multiplier > this.crashPoint) {
+    if (multiplier >= this.crashPoint) {
       throw new Error("Plane already crashed");
+    }
+
+    const winAmount = Number((bet.betAmount * multiplier).toFixed(2));
+
+    // IRON-CLAD ZERO-LOSS HOUSE GUARD:
+    // Verify that paying this winAmount does NOT breach the round payout budget
+    if (this.riskMode !== "PROVABLY_FAIR" && this.roundTotalPool > 0) {
+      const targetMargin = this.riskMode === "CONSERVATIVE" ? 0.40 : 0.25;
+      const maxAllowedTotalPayout = Math.min(
+        Number((this.roundTotalPool * (1 - targetMargin)).toFixed(2)),
+        this.maxAllowableRoundPayout
+      );
+
+      if (this.roundTotalPaidOut + winAmount > maxAllowedTotalPayout) {
+        // THIS CASHOUT WOULD CAUSE THE HOUSE TO BREACH PROFIT MARGIN OR GO INTO LOSS!
+        // Immediately crash the plane before crediting!
+        await this.handleCrash();
+        throw new Error("Plane flew away!");
+      }
     }
 
     bet.status = "CASHED_OUT";
     bet.cashoutMultiplier = multiplier;
+    this.roundTotalPaidOut += winAmount;
 
-    const winAmount = Number((bet.betAmount * multiplier).toFixed(2));
+    const winAmountFormatted = winAmount;
 
     await prisma.aviatorBet.update({
       where: { id: betId },
       data: {
         status: "CASHED_OUT",
         cashoutMultiplier: multiplier,
-        winAmount,
+        winAmount: winAmountFormatted,
       },
     });
 
     await WalletService.creditWinnings(
       bet.userId,
-      winAmount,
+      winAmountFormatted,
       `Aviator cashout at ${multiplier}x for round ${this.roundNumber}`
     );
 
