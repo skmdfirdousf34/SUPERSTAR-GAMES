@@ -218,6 +218,15 @@ export default function WinGoPage() {
     };
   }, [socket, user, selectedGameMode]);
 
+  // Smooth local countdown ticker so numbers flip cleanly every second even during network jitter
+  useEffect(() => {
+    if (timeLeft <= 0) return;
+    const localTimer = setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(localTimer);
+  }, [timeLeft]);
+
   const handleManualRefreshBalance = async () => {
     setIsRefreshingBalance(true);
     await refreshUser();
@@ -601,7 +610,7 @@ export default function WinGoPage() {
       <div className="px-3 mt-3 relative">
         <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 flex flex-col gap-3 relative overflow-hidden">
           {/* GIANT COUNTDOWN OVERLAY (Iconic Daman Feature - Image 2) */}
-          {timeLeft <= 5 && (
+          {timeLeft <= 5 && timeLeft > 0 && (
             <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-[2px] flex items-center justify-center animate-in fade-in duration-200">
               <div className="flex items-center gap-3">
                 <div className="w-20 h-28 bg-white rounded-2xl shadow-2xl flex items-center justify-center border-4 border-slate-200">

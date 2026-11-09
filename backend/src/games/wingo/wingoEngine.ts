@@ -193,13 +193,24 @@ export class SingleWinGoModeEngine {
 
       // When round ends (timeLeft <= 0)
       if (this.timeLeft <= 0) {
-        if (this.timer) clearInterval(this.timer);
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+
+        // 1. Instantly resolve round & broadcast outcome to players (<1ms)
         await this.resolveRound();
 
-        // 3-second display pause before starting next issue
-        setTimeout(() => {
-          this.initNextRound().then(() => this.startLoop());
-        }, 3000);
+        // 2. Swift 500ms transition to next round (eliminates dead 00:00 freeze!)
+        setTimeout(async () => {
+          try {
+            await this.initNextRound();
+            this.startLoop();
+          } catch (err) {
+            console.error(`[WinGo ${this.config.key}] Next round start error:`, err);
+            setTimeout(() => this.startLoop(), 500);
+          }
+        }, 500);
       }
     }, 1000);
   }
@@ -317,22 +328,9 @@ export class SingleWinGoModeEngine {
 
     const { winningNumber, winningColor, winningSize } = this.selectSmartWinningNumber(round.bets);
 
-    try {
-      await prisma.winGoRound.update({
-        where: { id: this.currentRoundId },
-        data: {
-          winningNumber,
-          winningColor,
-          winningSize,
-          status: "COMPLETED",
-        },
-      });
-    } catch (e) {
-      console.error(`[WinGo ${this.config.key}] Error updating round in DB:`, e);
-      return;
-    }
-
     const resolvedBets = [];
+    const persistingTasks: Promise<any>[] = [];
+
     for (const bet of round.bets) {
       let won = false;
       let multiplier = 0;
@@ -369,23 +367,6 @@ export class SingleWinGoModeEngine {
       const status = won ? "WON" : "LOST";
       const winAmount = won ? Number((contractAmount * multiplier).toFixed(2)) : 0;
 
-      await prisma.winGoBet.update({
-        where: { id: bet.id },
-        data: {
-          status,
-          payoutMultiplier: multiplier,
-          winAmount,
-        },
-      });
-
-      if (won && winAmount > 0) {
-        await WalletService.creditWinnings(
-          bet.userId,
-          winAmount,
-          `${this.config.displayName} ${round.period} win: ${bet.selectValue} (Result: ${winningNumber}, Payout: ${multiplier}x)`
-        );
-      }
-
       resolvedBets.push({
         betId: bet.id,
         userId: bet.userId,
@@ -395,6 +376,26 @@ export class SingleWinGoModeEngine {
         winAmount,
         selectValue: bet.selectValue,
       });
+
+      // Queue database persistence asynchronously
+      persistingTasks.push(
+        prisma.winGoBet.update({
+          where: { id: bet.id },
+          data: {
+            status,
+            payoutMultiplier: multiplier,
+            winAmount,
+          },
+        }).then(async () => {
+          if (won && winAmount > 0) {
+            await WalletService.creditWinnings(
+              bet.userId,
+              winAmount,
+              `${this.config.displayName} ${round.period} win: ${bet.selectValue} (Result: ${winningNumber}, Payout: ${multiplier}x)`
+            );
+          }
+        })
+      );
     }
 
     const resultPayload = {
@@ -407,8 +408,25 @@ export class SingleWinGoModeEngine {
       resolvedBets,
     };
 
+    // 1. Emit round result IMMEDIATELY to all players (<1ms latency)
     this.io.emit("wingo_round_result", resultPayload);
     this.io.emit(`wingo_round_result_${this.config.shortKey}`, resultPayload);
+
+    // 2. Persist round outcome and user winnings concurrently in background
+    Promise.all([
+      prisma.winGoRound.update({
+        where: { id: this.currentRoundId },
+        data: {
+          winningNumber,
+          winningColor,
+          winningSize,
+          status: "COMPLETED",
+        },
+      }),
+      ...persistingTasks,
+    ]).catch((err) => {
+      console.error(`[WinGo ${this.config.key}] Async settlement error:`, err);
+    });
   }
 
   public async placeBet(
