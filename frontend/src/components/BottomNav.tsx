@@ -10,6 +10,15 @@ export const BottomNav: React.FC = () => {
   const pathname = usePathname();
   const { user } = useAuth();
 
+  // Hide bottom navigation in full-bleed games and admin/operator panels to prevent button clipping
+  if (
+    pathname.startsWith("/games/") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/operator")
+  ) {
+    return null;
+  }
+
   const isWalletActive =
     pathname === "/wallet" ||
     pathname.startsWith("/wallet/recharge") ||

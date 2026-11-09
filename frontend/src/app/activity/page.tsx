@@ -105,7 +105,7 @@ export default function ActivityCenterPage() {
     return () => clearInterval(interval);
   }, [attendance]);
 
-  // Handle Daily Attendance Check-in Claim
+  // Handle Daily Attendance Check-in Claim (Instant Optimistic Feedback)
   const handleClaimCheckin = async () => {
     const savedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!user || !savedToken) {
@@ -113,24 +113,26 @@ export default function ActivityCenterPage() {
       return;
     }
 
+    // 0ms Instant Celebration & Feedback
+    confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
     setClaimLoading(true);
-    setClaimSuccess(null);
+    setClaimSuccess("Claiming your daily attendance bonus...");
     setClaimError(null);
+
+    // Optimistically disable further clicks immediately
+    setAttendance((prev) => (prev ? { ...prev, claimedToday: true } : prev));
 
     try {
       const res = await apiRequest("/activity/attendance/claim", {
         method: "POST",
       });
 
-      // Confetti celebration
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-
       setClaimSuccess(res.message);
-      // Immediately refresh user so wallet balance reflects the credited bonus
-      await refreshUser();
-      // Refresh attendance status to lock further claims today
-      await fetchAttendanceStatus();
+      // Concurrently refresh user wallet & attendance status
+      Promise.all([refreshUser(), fetchAttendanceStatus()]).catch(() => {});
     } catch (err: any) {
+      // Revert on failure
+      fetchAttendanceStatus();
       if (err?.message?.includes("Access token") || err?.status === 401) {
         setClaimError("Your login session has expired. Please log in again to claim your daily bonus.");
       } else {

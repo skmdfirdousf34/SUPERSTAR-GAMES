@@ -93,6 +93,7 @@ export default function WinGoPage() {
   const [agreeRules, setAgreeRules] = useState<boolean>(true);
   const [isSubmittingBet, setIsSubmittingBet] = useState<boolean>(false);
   const [betError, setBetError] = useState<string | null>(null);
+  const [betToast, setBetToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Refresh balance icon animation
   const [isRefreshingBalance, setIsRefreshingBalance] = useState<boolean>(false);
@@ -267,9 +268,25 @@ export default function WinGoPage() {
       return;
     }
 
-    setIsSubmittingBet(true);
+    // 1. Instant optimistic close & zero-latency feedback (<16ms)
+    setIsModalOpen(false);
+    setIsSubmittingBet(false);
     setBetError(null);
+    setBetToast({
+      type: "success",
+      message: `Trade Placed: ₹${totalAmount} on ${selectedBetValue}!`,
+    });
+    setTimeout(() => setBetToast(null), 3000);
 
+    // 2. Optimistic wallet balance update
+    if (user.wallet) {
+      user.wallet.balance = Math.max(0, user.wallet.balance - realNeeded);
+      if (bonusToUse > 0 && user.wallet.bonusBalance) {
+        user.wallet.bonusBalance = Math.max(0, user.wallet.bonusBalance - bonusToUse);
+      }
+    }
+
+    // 3. Background API execution without blocking the user
     try {
       await apiRequest("/games/wingo/bet", {
         method: "POST",
@@ -281,13 +298,16 @@ export default function WinGoPage() {
         }),
       });
 
-      setIsModalOpen(false);
-      refreshUser();
-      fetchData(selectedGameMode);
+      // Concurrently sync user wallet and active history
+      Promise.all([refreshUser(), fetchData(selectedGameMode)]).catch(() => {});
     } catch (err: any) {
-      setBetError(err.message || "Failed to place trade");
-    } finally {
-      setIsSubmittingBet(false);
+      // Revert wallet on network or server rejection
+      refreshUser();
+      setBetToast({
+        type: "error",
+        message: err.message || "Failed to place trade on server",
+      });
+      setTimeout(() => setBetToast(null), 4000);
     }
   };
 
@@ -328,6 +348,22 @@ export default function WinGoPage() {
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-slate-800 pb-20 relative select-none">
+      {/* Real-Time Instant Feedback Toast */}
+      {betToast && (
+        <div className="fixed top-4 inset-x-4 z-[200] max-w-sm mx-auto flex items-center justify-center animate-in slide-in-from-top duration-200">
+          <div
+            className={`px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 border text-xs font-black backdrop-blur-md ${
+              betToast.type === "success"
+                ? "bg-emerald-600/95 text-white border-emerald-400 shadow-emerald-950/50"
+                : "bg-rose-600/95 text-white border-rose-400 shadow-rose-950/50"
+            }`}
+          >
+            <span>{betToast.type === "success" ? "⚡" : "⚠️"}</span>
+            <span>{betToast.message}</span>
+          </div>
+        </div>
+      )}
+
       {/* 1. TOP HEADER (Coral-Red Daman Header) */}
       <header className="bg-gradient-to-r from-[#ff6b57] via-[#fe5043] to-[#fd423b] text-white px-4 pt-3 pb-8 rounded-b-[2rem] shadow-md relative">
         <div className="flex items-center justify-between">
@@ -1011,13 +1047,16 @@ export default function WinGoPage() {
 
       {/* 9. AUTHENTIC DAMAN BET SLIP MODAL (With Exact Rules & Fee Breakdown) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in">
-          <div className="w-full max-w-md bg-white rounded-t-3xl p-5 pb-8 shadow-2xl animate-in slide-in-from-bottom duration-200 border-t border-slate-200">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in p-0 sm:p-4">
+          <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden border-t border-slate-200 animate-in slide-in-from-bottom duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center justify-between p-4 pb-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-base font-extrabold text-slate-900">
-                  WinGo 30sec
+                  {selectedGameMode === "30S" && "WinGo 30sec"}
+                  {selectedGameMode === "1M" && "WinGo 1Min"}
+                  {selectedGameMode === "3M" && "WinGo 3Min"}
+                  {selectedGameMode === "5M" && "WinGo 5Min"}
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-[#fe4343] font-bold text-xs">
                   Select {selectedBetValue}
@@ -1031,132 +1070,135 @@ export default function WinGoPage() {
               </button>
             </div>
 
-            {betError && (
-              <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-medium text-center">
-                <p>{betError}</p>
-                {betError.includes("Recharge") && (
-                  <Link
-                    href="/wallet/recharge"
-                    className="mt-2.5 inline-block bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold py-1.5 px-4 rounded-xl text-xs shadow hover:from-emerald-500 hover:to-green-500"
-                  >
-                    Recharge Wallet (Min ₹100) &rarr;
-                  </Link>
-                )}
-              </div>
-            )}
+            {/* Scrollable Modal Body */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-4">
+              {betError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-medium text-center">
+                  <p>{betError}</p>
+                  {betError.includes("Recharge") && (
+                    <Link
+                      href="/wallet/recharge"
+                      className="mt-2.5 inline-block bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold py-1.5 px-4 rounded-xl text-xs shadow hover:from-emerald-500 hover:to-green-500"
+                    >
+                      Recharge Wallet (Min ₹100) &rarr;
+                    </Link>
+                  )}
+                </div>
+              )}
 
-            {/* Balance Units: ₹1, ₹10, ₹100, ₹1000 */}
-            <div className="mt-4">
-              <span className="text-xs font-bold text-slate-400 block mb-2">Balance</span>
-              <div className="grid grid-cols-4 gap-2">
-                {[1, 10, 100, 1000].map((unit) => (
+              {/* Balance Units: ₹1, ₹10, ₹100, ₹1000 */}
+              <div>
+                <span className="text-xs font-bold text-slate-400 block mb-2">Balance</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 10, 100, 1000].map((unit) => (
+                    <button
+                      key={unit}
+                      onClick={() => setBaseBalanceUnit(unit)}
+                      className={`py-2 rounded-xl text-xs font-bold transition active:scale-95 ${
+                        baseBalanceUnit === unit
+                          ? "bg-[#fe5043] text-white shadow-sm"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      ₹{unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quantity Counter */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400">Quantity</span>
+                <div className="flex items-center gap-3 bg-slate-100 rounded-xl p-1">
                   <button
-                    key={unit}
-                    onClick={() => setBaseBalanceUnit(unit)}
-                    className={`py-2 rounded-xl text-xs font-bold transition ${
-                      baseBalanceUnit === unit
-                        ? "bg-[#fe5043] text-white shadow-sm"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    onClick={() => setBetQuantity(Math.max(1, betQuantity - 1))}
+                    className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center font-black text-slate-700 hover:bg-slate-50 active:scale-95"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-base text-slate-800 w-8 text-center">
+                    {betQuantity}
+                  </span>
+                  <button
+                    onClick={() => setBetQuantity(betQuantity + 1)}
+                    className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center font-black text-slate-700 hover:bg-slate-50 active:scale-95"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Multiplier Pills: X1, X5, X10, X20, X50, X100 */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                {[1, 5, 10, 20, 50, 100].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setBetQuantity(m)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 transition active:scale-95 ${
+                      betQuantity === m
+                        ? "bg-[#fe5043] text-white"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                   >
-                    ₹{unit}
+                    X{m}
                   </button>
                 ))}
               </div>
-            </div>
 
-            {/* Quantity Counter */}
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400">Quantity</span>
-              <div className="flex items-center gap-3 bg-slate-100 rounded-xl p-1">
-                <button
-                  onClick={() => setBetQuantity(Math.max(1, betQuantity - 1))}
-                  className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center font-black text-slate-700 hover:bg-slate-50"
-                >
-                  -
-                </button>
-                <span className="font-mono font-black text-base text-slate-800 w-8 text-center">
-                  {betQuantity}
+              {/* Official Rule 2% Service Fee and Contract Breakdown Box */}
+              {(() => {
+                const maxBonus = Number((currentTotalSpend / 3).toFixed(2));
+                const bonusToApply = Math.min(user?.wallet?.bonusBalance || 0, maxBonus);
+                const realToPay = Number((currentTotalSpend - bonusToApply).toFixed(2));
+
+                return (
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs flex flex-col gap-1.5 font-medium">
+                    <div className="flex justify-between text-slate-500">
+                      <span>Trade Amount:</span>
+                      <span className="font-bold text-slate-800 font-mono">₹{currentTotalSpend}</span>
+                    </div>
+                    {bonusToApply > 0 && (
+                      <div className="flex justify-between text-amber-600 font-semibold py-0.5 border-t border-dashed border-slate-200">
+                        <span>🎁 Bonus Applied (1:2 ratio):</span>
+                        <span className="font-mono font-bold">-₹{bonusToApply.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-700">
+                      <span>Real Cash Required:</span>
+                      <span className="font-bold text-slate-900 font-mono">₹{realToPay.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>Service Fee (2%):</span>
+                      <span className="text-rose-500 font-mono font-bold">-₹{currentServiceFee}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-700 pt-1 border-t border-slate-200">
+                      <span className="font-bold">Contract Amount:</span>
+                      <span className="font-black text-[#18b660] font-mono">₹{currentContractAmount}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-700">
+                      <span className="font-bold">Estimated Payout (Real Cash):</span>
+                      <span className="font-black text-[#fe4343] font-mono">{getPayoutPreview()}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Terms Agreement Checkbox */}
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={agreeRules}
+                  onChange={(e) => setAgreeRules(e.target.checked)}
+                  className="w-4 h-4 rounded text-red-500 accent-[#fe5043]"
+                />
+                <span onClick={() => setIsRulesModalOpen(true)} className="hover:underline cursor-pointer">
+                  I agree to the <strong className="text-rose-500">Pre-sale rules</strong>
                 </span>
-                <button
-                  onClick={() => setBetQuantity(betQuantity + 1)}
-                  className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center font-black text-slate-700 hover:bg-slate-50"
-                >
-                  +
-                </button>
               </div>
             </div>
 
-            {/* Multiplier Pills: X1, X5, X10, X20, X50, X100 */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar mt-3">
-              {[1, 5, 10, 20, 50, 100].map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setBetQuantity(m)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 transition ${
-                    betQuantity === m
-                      ? "bg-[#fe5043] text-white"
-                      : "bg-slate-100 text-slate-500"
-                  }`}
-                >
-                  X{m}
-                </button>
-              ))}
-            </div>
-
-            {/* Official Rule 2% Service Fee and Contract Breakdown Box */}
-            {(() => {
-              const maxBonus = Number((currentTotalSpend / 3).toFixed(2));
-              const bonusToApply = Math.min(user?.wallet?.bonusBalance || 0, maxBonus);
-              const realToPay = Number((currentTotalSpend - bonusToApply).toFixed(2));
-
-              return (
-                <div className="mt-4 p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs flex flex-col gap-1.5 font-medium">
-                  <div className="flex justify-between text-slate-500">
-                    <span>Trade Amount:</span>
-                    <span className="font-bold text-slate-800 font-mono">₹{currentTotalSpend}</span>
-                  </div>
-                  {bonusToApply > 0 && (
-                    <div className="flex justify-between text-amber-600 font-semibold py-0.5 border-t border-dashed border-slate-200">
-                      <span>🎁 Bonus Applied (1:2 ratio):</span>
-                      <span className="font-mono font-bold">-₹{bonusToApply.toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-slate-700">
-                    <span>Real Cash Required:</span>
-                    <span className="font-bold text-slate-900 font-mono">₹{realToPay.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>Service Fee (2%):</span>
-                    <span className="text-rose-500 font-mono font-bold">-₹{currentServiceFee}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-700 pt-1 border-t border-slate-200">
-                    <span className="font-bold">Contract Amount:</span>
-                    <span className="font-black text-[#18b660] font-mono">₹{currentContractAmount}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-700">
-                    <span className="font-bold">Estimated Payout (Real Cash):</span>
-                    <span className="font-black text-[#fe4343] font-mono">{getPayoutPreview()}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Terms Agreement Checkbox */}
-            <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-              <input
-                type="checkbox"
-                checked={agreeRules}
-                onChange={(e) => setAgreeRules(e.target.checked)}
-                className="w-4 h-4 rounded text-red-500 accent-[#fe5043]"
-              />
-              <span onClick={() => setIsRulesModalOpen(true)} className="hover:underline cursor-pointer">
-                I agree to the <strong className="text-rose-500">Pre-sale rules</strong>
-              </span>
-            </div>
-
-            {/* Footer with Total and Confirm Button */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 pb-2">
+            {/* Sticky Bottom Confirmation Bar (Always in View, Above Any Screen Cutoff) */}
+            <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 flex items-center justify-between gap-3 shadow-[0_-6px_20px_rgba(0,0,0,0.08)] z-20">
               <div>
                 <span className="text-[10px] text-slate-400 block font-medium">Total Spend</span>
                 <span className="text-xl font-black text-[#fe4343] font-mono">
@@ -1176,9 +1218,16 @@ export default function WinGoPage() {
                   type="button"
                   disabled={isSubmittingBet}
                   onClick={handleConfirmBet}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff6854] to-[#fe4a3d] hover:from-[#fe5043] hover:to-[#e0312b] text-white text-xs font-black shadow-lg shadow-red-200 active:scale-95 transition disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff6854] to-[#fe4a3d] hover:from-[#fe5043] hover:to-[#e0312b] text-white text-xs font-black shadow-lg shadow-red-200 active:scale-95 transition disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {isSubmittingBet ? "Placing..." : "Confirm Bet"}
+                  {isSubmittingBet ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Placing...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Bet</span>
+                  )}
                 </button>
               </div>
             </div>

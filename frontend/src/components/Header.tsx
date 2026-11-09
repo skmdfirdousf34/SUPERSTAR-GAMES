@@ -2,11 +2,22 @@
 
 import React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 import { Wallet, PlusCircle, ShieldAlert, User as UserIcon, Sparkles, Gift } from "lucide-react";
 
 export const Header: React.FC = () => {
+  const pathname = usePathname();
   const { user, loading } = useAuth();
+
+  // Hide general app header on dedicated game screens and admin/operator consoles
+  if (
+    pathname.startsWith("/games/") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/operator")
+  ) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-40 bg-[#0e1626]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex items-center justify-between">
