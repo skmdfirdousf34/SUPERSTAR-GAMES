@@ -85,26 +85,17 @@ export class SingleWinGoModeEngine {
     this.totalTime = config.durationSeconds;
   }
 
-  public async start() {
-    await this.initNextRound();
-    this.startLoop();
-  }
-
-  public stop() {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-  }
-
   /**
-   * Generates period matching official format with embedded mode code:
-   * Format: YYYYMMDD + MODE_CODE(2 digits) + 4-digit sequence
+   * Deterministically calculates exact period and time left from UTC wall-clock time.
+   * Completely eliminates timer drift, skips, and 00-second freezes!
    */
-  public generatePeriodNumber(): string {
+  public calculateCurrentState(): {
+    period: string;
+    timeLeft: number;
+    isBettingOpen: boolean;
+    issueIndex: number;
+  } {
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-
     const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
     const secondsPassed = Math.floor((now.getTime() - midnight.getTime()) / 1000);
 
@@ -112,7 +103,19 @@ export class SingleWinGoModeEngine {
     if (issueIndex > this.config.issuesPerDay) issueIndex = this.config.issuesPerDay;
 
     const issueSeq = String(issueIndex).padStart(4, "0");
-    return `${dateStr}${this.config.code}${issueSeq}`;
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const period = `${dateStr}${this.config.code}${issueSeq}`;
+
+    const secondsIntoPeriod = secondsPassed % this.config.durationSeconds;
+    // Exactly durationSeconds down to 1 (e.g. 30 -> 1). Never drops to 0!
+    const timeLeft = this.config.durationSeconds - secondsIntoPeriod;
+    const isBettingOpen = timeLeft > 5;
+
+    return { period, timeLeft, isBettingOpen, issueIndex };
+  }
+
+  public generatePeriodNumber(): string {
+    return this.calculateCurrentState().period;
   }
 
   public async ensureRoundRecord(period: string): Promise<string> {
@@ -141,26 +144,22 @@ export class SingleWinGoModeEngine {
     }
   }
 
-  private async initNextRound() {
-    this.currentPeriod = this.generatePeriodNumber();
+  public async start() {
+    const state = this.calculateCurrentState();
+    this.currentPeriod = state.period;
+    this.timeLeft = state.timeLeft;
     this.totalTime = this.config.durationSeconds;
-    this.timeLeft = this.config.durationSeconds;
-    this.isBettingOpen = true;
+    this.isBettingOpen = state.isBettingOpen;
 
     await this.ensureRoundRecord(this.currentPeriod);
+    this.startLoop();
+  }
 
-    const payload = {
-      gameType: this.config.key,
-      shortType: this.config.shortKey,
-      period: this.currentPeriod,
-      roundId: this.currentRoundId,
-      timeLeft: this.timeLeft,
-      totalTime: this.totalTime,
-    };
-
-    // Broadcast both generic and mode-specific socket events
-    this.io.emit("wingo_new_round", payload);
-    this.io.emit(`wingo_new_round_${this.config.shortKey}`, payload);
+  public stop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   private startLoop() {
@@ -169,18 +168,68 @@ export class SingleWinGoModeEngine {
       this.timer = null;
     }
 
-    this.timer = setInterval(async () => {
-      this.timeLeft -= 1;
+    this.timer = setInterval(() => {
+      this.tick();
+    }, 1000);
+  }
 
-      // Lock betting during last 5 seconds
-      if (this.timeLeft <= 5 && this.isBettingOpen) {
+  /**
+   * Pure synchronous, zero-latency tick function executed every 1000ms.
+   * No Prisma awaits inside this loop — eliminating 5-4 glitches and jitter.
+   */
+  private tick() {
+    const { period, timeLeft, isBettingOpen } = this.calculateCurrentState();
+
+    // 1. Period Rollover: Boundary between issues crossed seamlessly
+    if (this.currentPeriod && period !== this.currentPeriod) {
+      const finishedRoundId = this.currentRoundId;
+      const finishedPeriod = this.currentPeriod;
+
+      this.currentPeriod = period;
+      this.timeLeft = timeLeft;
+      this.totalTime = this.config.durationSeconds;
+      this.isBettingOpen = isBettingOpen;
+
+      // Broadcast new round immediately to all connected players (0ms)
+      const newRoundPayload = {
+        gameType: this.config.key,
+        shortType: this.config.shortKey,
+        period: this.currentPeriod,
+        roundId: this.currentRoundId,
+        timeLeft: this.timeLeft,
+        totalTime: this.totalTime,
+        isBettingOpen: this.isBettingOpen,
+      };
+      this.io.emit("wingo_new_round", newRoundPayload);
+      this.io.emit(`wingo_new_round_${this.config.shortKey}`, newRoundPayload);
+
+      // Asynchronously resolve completed round in background (non-blocking)
+      this.resolveRound(finishedRoundId, finishedPeriod).catch((e) =>
+        console.error(`[WinGo ${this.config.key}] Resolution error:`, e)
+      );
+
+      // Ensure DB round record exists for the new period in background
+      this.ensureRoundRecord(this.currentPeriod).catch((e) =>
+        console.error(`[WinGo ${this.config.key}] Error ensuring round record:`, e)
+      );
+    } else {
+      this.currentPeriod = period;
+      this.timeLeft = timeLeft;
+      this.totalTime = this.config.durationSeconds;
+
+      // Betting Lock Phase (Last 5 seconds: 5, 4, 3, 2, 1)
+      if (timeLeft <= 5 && this.isBettingOpen) {
         this.isBettingOpen = false;
-        try {
-          await prisma.winGoRound.update({
-            where: { id: this.currentRoundId },
-            data: { status: "LOCKED" },
-          });
-        } catch (_) {}
+
+        // Update round status in DB in background without blocking this tick
+        if (this.currentRoundId) {
+          prisma.winGoRound
+            .update({
+              where: { id: this.currentRoundId },
+              data: { status: "LOCKED" },
+            })
+            .catch(() => {});
+        }
 
         const lockPayload = {
           gameType: this.config.key,
@@ -188,58 +237,24 @@ export class SingleWinGoModeEngine {
           period: this.currentPeriod,
           timeLeft: this.timeLeft,
         };
-
         this.io.emit("wingo_betting_locked", lockPayload);
         this.io.emit(`wingo_betting_locked_${this.config.shortKey}`, lockPayload);
+      } else {
+        this.isBettingOpen = isBettingOpen;
       }
+    }
 
-      // Broadcast tick every second
-      const tickPayload = {
-        gameType: this.config.key,
-        shortType: this.config.shortKey,
-        period: this.currentPeriod,
-        timeLeft: Math.max(0, this.timeLeft),
-        totalTime: this.totalTime,
-        isBettingOpen: this.isBettingOpen,
-      };
-
-      this.io.emit("wingo_tick", tickPayload);
-      this.io.emit(`wingo_tick_${this.config.shortKey}`, tickPayload);
-
-      // When round ends (timeLeft <= 0): Seamless continuous rollover (never stop the clock!)
-      if (this.timeLeft <= 0) {
-        const finishedRoundId = this.currentRoundId;
-        const finishedPeriod = this.currentPeriod;
-
-        // 1. Immediately roll over to the new issue without stopping the clock!
-        this.currentPeriod = this.generatePeriodNumber();
-        this.totalTime = this.config.durationSeconds;
-        this.timeLeft = this.config.durationSeconds;
-        this.isBettingOpen = true;
-
-        // 2. Broadcast new round to all players instantly (0ms delay)
-        const newRoundPayload = {
-          gameType: this.config.key,
-          shortType: this.config.shortKey,
-          period: this.currentPeriod,
-          roundId: this.currentRoundId,
-          timeLeft: this.timeLeft,
-          totalTime: this.totalTime,
-        };
-        this.io.emit("wingo_new_round", newRoundPayload);
-        this.io.emit(`wingo_new_round_${this.config.shortKey}`, newRoundPayload);
-
-        // 3. Resolve completed round and broadcast results asynchronously (<1ms)
-        this.resolveRound(finishedRoundId, finishedPeriod).catch((e) =>
-          console.error(`[WinGo ${this.config.key}] Resolution error:`, e)
-        );
-
-        // 4. Ensure DB row exists for the new round in background
-        this.ensureRoundRecord(this.currentPeriod).catch((e) =>
-          console.error(`[WinGo ${this.config.key}] Error ensuring round record:`, e)
-        );
-      }
-    }, 1000);
+    // Broadcast authoritative tick to all players every second
+    const tickPayload = {
+      gameType: this.config.key,
+      shortType: this.config.shortKey,
+      period: this.currentPeriod,
+      timeLeft: this.timeLeft,
+      totalTime: this.totalTime,
+      isBettingOpen: this.isBettingOpen,
+    };
+    this.io.emit("wingo_tick", tickPayload);
+    this.io.emit(`wingo_tick_${this.config.shortKey}`, tickPayload);
   }
 
   /**
@@ -345,10 +360,18 @@ export class SingleWinGoModeEngine {
 
     let round;
     try {
-      round = await prisma.winGoRound.findUnique({
-        where: { id: roundId },
-        include: { bets: true },
-      });
+      if (roundId) {
+        round = await prisma.winGoRound.findUnique({
+          where: { id: roundId },
+          include: { bets: true },
+        });
+      }
+      if (!round && period) {
+        round = await prisma.winGoRound.findUnique({
+          where: { period },
+          include: { bets: true },
+        });
+      }
     } catch (e) {
       console.error(`[WinGo ${this.config.key}] Error fetching round bets:`, e);
       return;
@@ -445,7 +468,7 @@ export class SingleWinGoModeEngine {
     // 2. Persist round outcome and user winnings concurrently in background
     Promise.all([
       prisma.winGoRound.update({
-        where: { id: roundId },
+        where: { id: round.id },
         data: {
           winningNumber,
           winningColor,
@@ -465,11 +488,16 @@ export class SingleWinGoModeEngine {
     selectValue: string,
     betAmount: number
   ) {
-    if (!this.isBettingOpen || this.timeLeft <= 5) {
+    const { timeLeft, isBettingOpen } = this.calculateCurrentState();
+    if (!isBettingOpen || timeLeft <= 5) {
       throw new Error(`Betting is locked for current ${this.config.displayName} round. Please wait for next draw.`);
     }
     if (betAmount < 1) {
       throw new Error("Minimum trade amount is ₹1");
+    }
+
+    if (!this.currentRoundId) {
+      await this.ensureRoundRecord(this.currentPeriod);
     }
 
     // Deduct wallet balance
@@ -502,12 +530,13 @@ export class SingleWinGoModeEngine {
   }
 
   public getState() {
+    const { period, timeLeft, isBettingOpen } = this.calculateCurrentState();
     return {
       roundId: this.currentRoundId,
-      period: this.currentPeriod,
-      timeLeft: Math.max(0, this.timeLeft),
+      period: this.currentPeriod || period,
+      timeLeft,
       totalTime: this.totalTime,
-      isBettingOpen: this.isBettingOpen,
+      isBettingOpen,
       gameType: this.config.key,
       shortType: this.config.shortKey,
       displayName: this.config.displayName,

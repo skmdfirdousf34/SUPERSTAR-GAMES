@@ -167,9 +167,7 @@ export default function WinGoPage() {
 
     socket.on("wingo_betting_locked", (data) => {
       if (!isTargetMode(data)) return;
-      lastSocketTickTimeRef.current = Date.now();
       setIsBettingOpen(false);
-      setTimeLeft(data.timeLeft);
     });
 
     socket.on("wingo_round_result", async (data) => {
@@ -226,17 +224,25 @@ export default function WinGoPage() {
   }, [socket, user, selectedGameMode]);
 
   // Smart non-competing fallback ticker: ONLY decrements if a socket tick is delayed >1500ms
-  // It NEVER jumps to 30 on its own — eliminating all counter jump glitches!
+  // It rolls over gracefully to mode duration instead of freezing at 00:00!
   useEffect(() => {
     const fallbackTimer = setInterval(() => {
       const timeSinceLastTick = Date.now() - lastSocketTickTimeRef.current;
-      if (timeSinceLastTick >= 1500 && timeSinceLastTick < 6000) {
-        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      if (timeSinceLastTick >= 1500 && timeSinceLastTick < 60000) {
+        const modeDuration =
+          selectedGameMode === "30S"
+            ? 30
+            : selectedGameMode === "1M"
+            ? 60
+            : selectedGameMode === "3M"
+            ? 180
+            : 300;
+        setTimeLeft((prev) => (prev <= 1 ? modeDuration : prev - 1));
       }
     }, 1000);
 
     return () => clearInterval(fallbackTimer);
-  }, []);
+  }, [selectedGameMode]);
 
   const handleManualRefreshBalance = async () => {
     setIsRefreshingBalance(true);
@@ -596,14 +602,14 @@ export default function WinGoPage() {
               <span className="text-white font-bold text-base -mx-0.5">:</span>
               <div
                 className={`w-6 h-8 rounded-md bg-white flex items-center justify-center shadow-md ${
-                  timeLeft <= 5 ? "text-red-600 animate-pulse" : "text-slate-900"
+                  timeLeft <= 5 ? "text-[#fe4343] font-black" : "text-slate-900"
                 }`}
               >
                 {s1}
               </div>
               <div
                 className={`w-6 h-8 rounded-md bg-white flex items-center justify-center shadow-md ${
-                  timeLeft <= 5 ? "text-red-600 animate-pulse" : "text-slate-900"
+                  timeLeft <= 5 ? "text-[#fe4343] font-black" : "text-slate-900"
                 }`}
               >
                 {s2}
@@ -622,7 +628,7 @@ export default function WinGoPage() {
         <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 flex flex-col gap-3 relative overflow-hidden">
           {/* GIANT COUNTDOWN OVERLAY (Iconic Daman Feature - Image 2) */}
           {timeLeft <= 5 && timeLeft > 0 && (
-            <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-[2px] flex items-center justify-center animate-in fade-in duration-200">
+            <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-[2px] flex items-center justify-center">
               <div className="flex items-center gap-3">
                 <div className="w-20 h-28 bg-white rounded-2xl shadow-2xl flex items-center justify-center border-4 border-slate-200">
                   <span className="font-mono text-7xl font-black text-[#fe4343]">
