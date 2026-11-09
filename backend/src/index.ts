@@ -102,6 +102,7 @@ app.get("/api/banking-hours", (_req, res) => {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
+    version: "v2.1-atomic-clock",
     timestamp: new Date().toISOString(),
     wingoPeriod: wingoEngine.currentPeriod,
     aviatorStatus: aviatorEngine.status,
