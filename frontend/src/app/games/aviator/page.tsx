@@ -6,6 +6,8 @@ import { useAuth } from "../../../context/AuthContext";
 import { useSocket } from "../../../context/SocketContext";
 import { apiRequest } from "../../../lib/api";
 import confetti from "canvas-confetti";
+import { AviatorSoundEngine } from "../../../lib/SoundEngine";
+import { ParticlePool, ScreenShake, drawSpribePlane } from "../../../lib/AviatorVisuals";
 import {
   ChevronLeft,
   History,
@@ -90,6 +92,27 @@ export default function AviatorPage() {
   const countdownRef = useRef<number>(countdown);
   const lastStateUpdateRef = useRef<number>(0);
 
+  // Procedural Sound & Visual FX Refs (From Spribe Engine)
+  const soundEngineRef = useRef<AviatorSoundEngine | null>(null);
+  const particlesRef = useRef<ParticlePool>(new ParticlePool());
+  const screenShakeRef = useRef<ScreenShake>(new ScreenShake());
+  const crashTimestampRef = useRef<number | null>(null);
+  const lastPlanePosRef = useRef<{ x: number; y: number }>({ x: 40, y: 180 });
+
+  useEffect(() => {
+    soundEngineRef.current = new AviatorSoundEngine();
+    soundEngineRef.current.setMuted(!soundEnabled);
+    return () => {
+      soundEngineRef.current?.dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (soundEngineRef.current) {
+      soundEngineRef.current.setMuted(!soundEnabled);
+    }
+  }, [soundEnabled]);
+
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -128,6 +151,7 @@ export default function AviatorPage() {
       statusRef.current = "BETTING";
       targetMultiplierRef.current = 1.0;
       countdownRef.current = data.countdown || 5;
+      crashTimestampRef.current = null;
       setStatus("BETTING");
       setCurrentMultiplier(1.0);
       setCountdown(data.countdown || 5);
@@ -145,6 +169,7 @@ export default function AviatorPage() {
     socket.on("aviator_countdown_tick", (data) => {
       statusRef.current = "BETTING";
       countdownRef.current = data.countdown;
+      soundEngineRef.current?.tick();
       setStatus("BETTING");
       setCountdown(data.countdown);
     });
@@ -152,6 +177,9 @@ export default function AviatorPage() {
     socket.on("aviator_flight_start", () => {
       statusRef.current = "FLYING";
       targetMultiplierRef.current = 1.0;
+      crashTimestampRef.current = null;
+      particlesRef.current.reset();
+      soundEngineRef.current?.flightStart();
       setStatus("FLYING");
       setCurrentMultiplier(1.0);
     });
@@ -159,6 +187,7 @@ export default function AviatorPage() {
     socket.on("aviator_tick", (data) => {
       statusRef.current = "FLYING";
       targetMultiplierRef.current = data.multiplier;
+      soundEngineRef.current?.updateMultiplier(data.multiplier);
 
       // Throttle React state update to ~100ms for smooth 60fps rendering without React thrashing
       const now = Date.now();
@@ -172,6 +201,10 @@ export default function AviatorPage() {
     socket.on("aviator_crashed", (data) => {
       statusRef.current = "CRASHED";
       targetMultiplierRef.current = data.crashPoint;
+      crashTimestampRef.current = performance.now();
+      screenShakeRef.current.trigger(10, 400);
+      particlesRef.current.spawnCrashBurst(lastPlanePosRef.current.x, lastPlanePosRef.current.y);
+      soundEngineRef.current?.crash();
       setStatus("CRASHED");
       setCurrentMultiplier(data.crashPoint);
       fetchData();
@@ -246,6 +279,7 @@ export default function AviatorPage() {
       setHasCashedOut1(true);
       setWin1Amount(res.result.winAmount);
       confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+      soundEngineRef.current?.cashout();
       refreshUser();
     } catch (err: any) {
       alert(err.message || "Cashout failed");
@@ -297,6 +331,7 @@ export default function AviatorPage() {
       setHasCashedOut2(true);
       setWin2Amount(res.result.winAmount);
       confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+      soundEngineRef.current?.cashout();
       refreshUser();
     } catch (err: any) {
       alert(err.message || "Cashout failed");
@@ -348,7 +383,7 @@ export default function AviatorPage() {
     }
   }, [status, queuedNextRound2, activeBet2Id, loading2]);
 
-  // 60-FPS Decoupled Hardware-Accelerated Canvas Engine (Zero Lag / Smooth Flight)
+  // 60-FPS Decoupled Hardware-Accelerated Canvas Engine with Spribe Plane & Particle Trail
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -374,9 +409,15 @@ export default function AviatorPage() {
 
     let displayedMultiplier = 1.0;
     let running = true;
+    let lastTime = performance.now();
+    let frameCount = 0;
 
-    const render = () => {
+    const render = (time: number) => {
       if (!running) return;
+
+      const dtMs = Math.min(time - lastTime, 50);
+      lastTime = time;
+      frameCount++;
 
       const currentStatus = statusRef.current;
       const targetMul = targetMultiplierRef.current;
@@ -390,6 +431,14 @@ export default function AviatorPage() {
         displayedMultiplier = targetMul;
       } else {
         displayedMultiplier = 1.0;
+      }
+
+      // Update screen shake
+      screenShakeRef.current.update(dtMs);
+
+      ctx.save();
+      if (screenShakeRef.current.isActive()) {
+        ctx.translate(screenShakeRef.current.offsetX, screenShakeRef.current.offsetY);
       }
 
       ctx.clearRect(0, 0, width, height);
@@ -413,6 +462,15 @@ export default function AviatorPage() {
         ctx.stroke();
       }
 
+      // 3. Subtle grid axes
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, 10);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(width - 10, cy);
+      ctx.stroke();
+
       if (currentStatus === "BETTING") {
         // Waiting bar
         ctx.fillStyle = "rgba(239, 68, 68, 0.9)";
@@ -423,6 +481,10 @@ export default function AviatorPage() {
         ctx.fillStyle = "#ffffff";
         ctx.font = "bold 26px monospace";
         ctx.fillText(`${currentCountdown}s`, width / 2, height / 2 + 25);
+
+        // Update & render any lingering particles
+        particlesRef.current.update(dtMs);
+        particlesRef.current.draw(ctx);
       } else if (currentStatus === "FLYING" || currentStatus === "CRASHED") {
         // Curve coordinates
         const progress = Math.min(1.0, (displayedMultiplier - 1.0) / 6.0);
@@ -434,9 +496,12 @@ export default function AviatorPage() {
         const cpX = startX + (endX - startX) * 0.6;
         const cpY = startY;
 
+        lastPlanePosRef.current = { x: endX, y: endY };
+
         // Red Fill under curve
         const gradient = ctx.createLinearGradient(0, endY, 0, height);
-        gradient.addColorStop(0, "rgba(220, 38, 38, 0.45)");
+        gradient.addColorStop(0, "rgba(220, 38, 38, 0.42)");
+        gradient.addColorStop(0.5, "rgba(220, 38, 38, 0.14)");
         gradient.addColorStop(1, "rgba(220, 38, 38, 0.0)");
 
         ctx.fillStyle = gradient;
@@ -447,58 +512,64 @@ export default function AviatorPage() {
         ctx.closePath();
         ctx.fill();
 
-        // Thick Red Line
+        // Glowing Thick Red Line
+        ctx.save();
+        ctx.shadowColor = "#ef4444";
+        ctx.shadowBlur = 8;
         ctx.strokeStyle = "#dc2626";
         ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.quadraticCurveTo(cpX, cpY, endX, endY);
         ctx.stroke();
+        ctx.restore();
 
-        // Draw Spribe Propeller Airplane
         if (currentStatus === "FLYING") {
-          ctx.save();
-          ctx.translate(endX, endY);
-          const angle = -Math.atan2(startY - endY, endX - startX) * 0.5;
-          ctx.rotate(angle);
+          // Spawn fiery exhaust smoke trail every other frame
+          if (frameCount % 2 === 0) {
+            particlesRef.current.spawnTrail(endX - 14, endY + 2);
+          }
+          particlesRef.current.update(dtMs);
+          particlesRef.current.draw(ctx);
 
-          // Airplane Body (Bright Red)
-          ctx.fillStyle = "#ef4444";
-          ctx.beginPath();
-          ctx.moveTo(16, 0);
-          ctx.lineTo(-14, -8);
-          ctx.lineTo(-9, 0);
-          ctx.lineTo(-14, 8);
-          ctx.closePath();
-          ctx.fill();
-
-          // Wings with "X" mark (Spribe Signature)
-          ctx.fillStyle = "#dc2626";
-          ctx.beginPath();
-          ctx.moveTo(3, 0);
-          ctx.lineTo(-5, -16);
-          ctx.lineTo(0, -16);
-          ctx.lineTo(5, 0);
-          ctx.closePath();
-          ctx.fill();
-
-          // Propeller blade in front
-          ctx.fillStyle = "#f59e0b";
-          ctx.fillRect(16, -6, 2, 12);
-
-          // White "X" on wing
-          ctx.fillStyle = "#ffffff";
-          ctx.font = "bold 9px sans-serif";
-          ctx.fillText("X", -3, -7);
-
-          ctx.restore();
+          // Draw vector Spribe Airplane with spinning propeller & cockpit reflection
+          const angle = -Math.atan2(startY - endY, endX - startX) * 0.48;
+          drawSpribePlane(ctx, endX, endY, angle, time / 1000, 0.95);
         } else if (currentStatus === "CRASHED") {
+          // Fly-away animation!
+          const crashTime = crashTimestampRef.current || time;
+          const flyAwayMs = time - crashTime;
+          const flyAwayT = Math.min(flyAwayMs / 1200, 1.0);
+
+          const flyAwayX = endX + flyAwayT * 150;
+          const flyAwayY = endY - flyAwayT * 220;
+          const flyAwayAngle = -0.35 - flyAwayT * 0.55;
+          const flyAwayAlpha = Math.max(0, 1 - flyAwayT * flyAwayT);
+
+          // Trail during fly-away
+          if (flyAwayT < 0.6 && frameCount % 2 === 0) {
+            particlesRef.current.spawnTrail(flyAwayX - 12, flyAwayY);
+          }
+
+          particlesRef.current.update(dtMs);
+          particlesRef.current.draw(ctx);
+
+          if (flyAwayAlpha > 0.02) {
+            ctx.save();
+            ctx.globalAlpha = flyAwayAlpha;
+            drawSpribePlane(ctx, flyAwayX, flyAwayY, flyAwayAngle, time / 1000, 0.95 * (1 - flyAwayT * 0.3));
+            ctx.restore();
+          }
+
+          // Center "FLEW AWAY!" header
           ctx.fillStyle = "#ef4444";
-          ctx.font = "bold 22px sans-serif";
+          ctx.font = "bold 24px sans-serif";
           ctx.textAlign = "center";
           ctx.fillText("FLEW AWAY!", width / 2, height / 2 - 12);
         }
       }
+
+      ctx.restore();
 
       animationFrameRef.current = requestAnimationFrame(render);
     };
@@ -544,10 +615,15 @@ export default function AviatorPage() {
           </div>
 
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-1 rounded text-slate-400 hover:text-white"
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              soundEngineRef.current?.setMuted(!next);
+            }}
+            className="p-1 rounded text-slate-400 hover:text-white touch-manipulation transition"
+            title={soundEnabled ? "Mute Sound" : "Enable Sound"}
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
           </button>
 
           <a
