@@ -218,14 +218,24 @@ export default function WinGoPage() {
     };
   }, [socket, user, selectedGameMode]);
 
-  // Smooth local countdown ticker so numbers flip cleanly every second even during network jitter
+  // Continuous smooth countdown ticker: ticks every 1000ms, rolls over seamlessly without freezing at 00
   useEffect(() => {
-    if (timeLeft <= 0) return;
     const localTimer = setInterval(() => {
-      setTimeLeft((prev) => Math.max(0, prev - 1));
+      setTimeLeft((prev) => {
+        if (prev > 0) return prev - 1;
+        // When 0 is reached, seamlessly roll over to mode duration (30s / 60s)
+        const durationMap: Record<string, number> = {
+          "30S": 30,
+          "1M": 60,
+          "3M": 180,
+          "5M": 300,
+        };
+        return durationMap[selectedGameMode] || 30;
+      });
     }, 1000);
+
     return () => clearInterval(localTimer);
-  }, [timeLeft]);
+  }, [selectedGameMode]);
 
   const handleManualRefreshBalance = async () => {
     setIsRefreshingBalance(true);

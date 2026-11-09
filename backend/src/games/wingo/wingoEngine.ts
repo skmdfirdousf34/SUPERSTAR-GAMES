@@ -115,29 +115,39 @@ export class SingleWinGoModeEngine {
     return `${dateStr}${this.config.code}${issueSeq}`;
   }
 
+  public async ensureRoundRecord(period: string): Promise<string> {
+    try {
+      let round = await prisma.winGoRound.findUnique({
+        where: { period },
+      });
+
+      if (!round) {
+        round = await prisma.winGoRound.create({
+          data: {
+            period,
+            gameType: this.config.key,
+            status: "BETTING",
+            startTime: new Date(),
+            endTime: new Date(Date.now() + this.config.durationSeconds * 1000),
+          },
+        });
+      }
+
+      this.currentRoundId = round.id;
+      return round.id;
+    } catch (err) {
+      console.error(`[WinGo ${this.config.key}] Error ensuring round record:`, err);
+      return this.currentRoundId;
+    }
+  }
+
   private async initNextRound() {
     this.currentPeriod = this.generatePeriodNumber();
     this.totalTime = this.config.durationSeconds;
     this.timeLeft = this.config.durationSeconds;
     this.isBettingOpen = true;
 
-    let round = await prisma.winGoRound.findUnique({
-      where: { period: this.currentPeriod },
-    });
-
-    if (!round) {
-      round = await prisma.winGoRound.create({
-        data: {
-          period: this.currentPeriod,
-          gameType: this.config.key,
-          status: "BETTING",
-          startTime: new Date(),
-          endTime: new Date(Date.now() + this.config.durationSeconds * 1000),
-        },
-      });
-    }
-
-    this.currentRoundId = round.id;
+    await this.ensureRoundRecord(this.currentPeriod);
 
     const payload = {
       gameType: this.config.key,
@@ -154,6 +164,11 @@ export class SingleWinGoModeEngine {
   }
 
   private startLoop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
     this.timer = setInterval(async () => {
       this.timeLeft -= 1;
 
@@ -191,26 +206,38 @@ export class SingleWinGoModeEngine {
       this.io.emit("wingo_tick", tickPayload);
       this.io.emit(`wingo_tick_${this.config.shortKey}`, tickPayload);
 
-      // When round ends (timeLeft <= 0)
+      // When round ends (timeLeft <= 0): Seamless continuous rollover (never stop the clock!)
       if (this.timeLeft <= 0) {
-        if (this.timer) {
-          clearInterval(this.timer);
-          this.timer = null;
-        }
+        const finishedRoundId = this.currentRoundId;
+        const finishedPeriod = this.currentPeriod;
 
-        // 1. Instantly resolve round & broadcast outcome to players (<1ms)
-        await this.resolveRound();
+        // 1. Immediately roll over to the new issue without stopping the clock!
+        this.currentPeriod = this.generatePeriodNumber();
+        this.totalTime = this.config.durationSeconds;
+        this.timeLeft = this.config.durationSeconds;
+        this.isBettingOpen = true;
 
-        // 2. Swift 500ms transition to next round (eliminates dead 00:00 freeze!)
-        setTimeout(async () => {
-          try {
-            await this.initNextRound();
-            this.startLoop();
-          } catch (err) {
-            console.error(`[WinGo ${this.config.key}] Next round start error:`, err);
-            setTimeout(() => this.startLoop(), 500);
-          }
-        }, 500);
+        // 2. Broadcast new round to all players instantly (0ms delay)
+        const newRoundPayload = {
+          gameType: this.config.key,
+          shortType: this.config.shortKey,
+          period: this.currentPeriod,
+          roundId: this.currentRoundId,
+          timeLeft: this.timeLeft,
+          totalTime: this.totalTime,
+        };
+        this.io.emit("wingo_new_round", newRoundPayload);
+        this.io.emit(`wingo_new_round_${this.config.shortKey}`, newRoundPayload);
+
+        // 3. Resolve completed round and broadcast results asynchronously (<1ms)
+        this.resolveRound(finishedRoundId, finishedPeriod).catch((e) =>
+          console.error(`[WinGo ${this.config.key}] Resolution error:`, e)
+        );
+
+        // 4. Ensure DB row exists for the new round in background
+        this.ensureRoundRecord(this.currentPeriod).catch((e) =>
+          console.error(`[WinGo ${this.config.key}] Error ensuring round record:`, e)
+        );
       }
     }, 1000);
   }
@@ -312,11 +339,14 @@ export class SingleWinGoModeEngine {
     return { winningNumber, winningColor, winningSize };
   }
 
-  private async resolveRound() {
+  private async resolveRound(targetRoundId?: string, targetPeriod?: string) {
+    const roundId = targetRoundId || this.currentRoundId;
+    const period = targetPeriod || this.currentPeriod;
+
     let round;
     try {
       round = await prisma.winGoRound.findUnique({
-        where: { id: this.currentRoundId },
+        where: { id: roundId },
         include: { bets: true },
       });
     } catch (e) {
@@ -401,7 +431,7 @@ export class SingleWinGoModeEngine {
     const resultPayload = {
       gameType: this.config.key,
       shortType: this.config.shortKey,
-      period: this.currentPeriod,
+      period: period,
       winningNumber,
       winningColor,
       winningSize,
@@ -415,7 +445,7 @@ export class SingleWinGoModeEngine {
     // 2. Persist round outcome and user winnings concurrently in background
     Promise.all([
       prisma.winGoRound.update({
-        where: { id: this.currentRoundId },
+        where: { id: roundId },
         data: {
           winningNumber,
           winningColor,
