@@ -70,6 +70,7 @@ export default function AviatorPage() {
   const [hasCashedOut1, setHasCashedOut1] = useState<boolean>(false);
   const [win1Amount, setWin1Amount] = useState<number>(0);
   const [loading1, setLoading1] = useState<boolean>(false);
+  const [queuedNextRound1, setQueuedNextRound1] = useState<boolean>(false);
 
   // DUAL BET PANEL 2
   const [bet2Amount, setBet2Amount] = useState<number>(10);
@@ -79,6 +80,7 @@ export default function AviatorPage() {
   const [hasCashedOut2, setHasCashedOut2] = useState<boolean>(false);
   const [win2Amount, setWin2Amount] = useState<number>(0);
   const [loading2, setLoading2] = useState<boolean>(false);
+  const [queuedNextRound2, setQueuedNextRound2] = useState<boolean>(false);
 
   // Canvas & High-Performance Animation Refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -302,6 +304,49 @@ export default function AviatorPage() {
       setLoading2(false);
     }
   };
+
+  const handleQueueBet1 = () => {
+    if (!user) return alert("Please login first to bet");
+    const maxBonus1 = Number((bet1Amount / 3).toFixed(2));
+    const bonusToUse1 = Math.min(user.wallet?.bonusBalance || 0, maxBonus1);
+    const realNeeded1 = Number((bet1Amount - bonusToUse1).toFixed(2));
+    if ((user.wallet?.balance || 0) < realNeeded1) {
+      if ((user.wallet?.balance || 0) <= 0 && (user.wallet?.bonusBalance || 0) > 0) {
+        return alert("Real Cash Required: You need Real Cash to use Bonus Wallet (₹1 bonus for every ₹2 real cash). Please recharge!");
+      }
+      return alert(`Insufficient Real Cash. You need at least ₹${realNeeded1} Real Cash. Please recharge!`);
+    }
+    setQueuedNextRound1(true);
+  };
+
+  const handleQueueBet2 = () => {
+    if (!user) return alert("Please login first to bet");
+    const maxBonus2 = Number((bet2Amount / 3).toFixed(2));
+    const bonusToUse2 = Math.min(user.wallet?.bonusBalance || 0, maxBonus2);
+    const realNeeded2 = Number((bet2Amount - bonusToUse2).toFixed(2));
+    if ((user.wallet?.balance || 0) < realNeeded2) {
+      if ((user.wallet?.balance || 0) <= 0 && (user.wallet?.bonusBalance || 0) > 0) {
+        return alert("Real Cash Required: You need Real Cash to use Bonus Wallet (₹1 bonus for every ₹2 real cash). Please recharge!");
+      }
+      return alert(`Insufficient Real Cash. You need at least ₹${realNeeded2} Real Cash. Please recharge!`);
+    }
+    setQueuedNextRound2(true);
+  };
+
+  // Automatically submit queued bets as soon as countdown begins
+  useEffect(() => {
+    if (status === "BETTING" && queuedNextRound1 && !activeBet1Id && !loading1) {
+      setQueuedNextRound1(false);
+      handlePlaceBet1();
+    }
+  }, [status, queuedNextRound1, activeBet1Id, loading1]);
+
+  useEffect(() => {
+    if (status === "BETTING" && queuedNextRound2 && !activeBet2Id && !loading2) {
+      setQueuedNextRound2(false);
+      handlePlaceBet2();
+    }
+  }, [status, queuedNextRound2, activeBet2Id, loading2]);
 
   // 60-FPS Decoupled Hardware-Accelerated Canvas Engine (Zero Lag / Smooth Flight)
   useEffect(() => {
@@ -585,14 +630,14 @@ export default function AviatorPage() {
           <div className="flex items-center justify-between bg-black/40 rounded-xl p-1 mt-2 border border-purple-950">
             <button
               onClick={() => setBet1Amount(Math.max(10, bet1Amount - 10))}
-              className="w-7 h-7 rounded-lg bg-slate-800 text-white font-black flex items-center justify-center text-sm"
+              className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-slate-800 active:bg-slate-700 text-white font-black flex items-center justify-center text-base touch-manipulation"
             >
               -
             </button>
             <span className="font-mono font-bold text-xs text-white">₹{bet1Amount}</span>
             <button
               onClick={() => setBet1Amount(bet1Amount + 10)}
-              className="w-7 h-7 rounded-lg bg-slate-800 text-white font-black flex items-center justify-center text-sm"
+              className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-slate-800 active:bg-slate-700 text-white font-black flex items-center justify-center text-base touch-manipulation"
             >
               +
             </button>
@@ -604,7 +649,7 @@ export default function AviatorPage() {
               <button
                 key={amt}
                 onClick={() => setBet1Amount(amt)}
-                className="py-0.5 rounded bg-slate-900 text-[9px] font-bold text-slate-400 hover:text-white"
+                className="py-1.5 min-h-[28px] rounded bg-slate-900 active:bg-slate-700 text-[10px] font-bold text-slate-300 hover:text-white touch-manipulation"
               >
                 {amt}
               </button>
@@ -629,37 +674,98 @@ export default function AviatorPage() {
           <div className="mt-2.5">
             {activeBet1Id ? (
               hasCashedOut1 ? (
-                <div className="py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-center font-bold text-xs">
-                  +₹{win1Amount.toFixed(1)}
+                <div className="flex flex-col gap-1.5">
+                  <div className="py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-center font-bold text-xs">
+                    +₹{win1Amount.toFixed(1)} Cashed Out!
+                  </div>
+                  {queuedNextRound1 ? (
+                    <button
+                      onClick={() => setQueuedNextRound1(false)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                      Next Round Queued (Cancel)
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleQueueBet1}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
+                    >
+                      Bet {bet1Amount} INR (Next Round)
+                    </button>
+                  )}
                 </div>
               ) : status === "FLYING" ? (
                 <button
                   disabled={loading1}
                   onClick={handleCashout1}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs uppercase animate-pulse shadow-lg"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation disabled:opacity-75 flex items-center justify-center gap-1.5"
                 >
-                  Cash Out ₹{(bet1Amount * currentMultiplier).toFixed(1)}
+                  {loading1 ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Cashing Out...</span>
+                    </>
+                  ) : (
+                    <span>Cash Out ₹{(bet1Amount * currentMultiplier).toFixed(1)}</span>
+                  )}
                 </button>
               ) : status === "BETTING" ? (
-                <div className="py-3 rounded-xl bg-amber-500/20 text-amber-300 text-center text-[10px] font-bold border border-amber-500/40">
-                  Waiting...
+                <div className="py-3 rounded-xl bg-amber-500/20 text-amber-300 text-center text-xs font-bold border border-amber-500/40">
+                  Waiting for flight...
                 </div>
               ) : (
-                <div className="py-3 rounded-xl bg-rose-500/20 text-rose-400 text-center text-[10px] font-bold">
-                  Flew Away
+                <div className="flex flex-col gap-1.5">
+                  <div className="py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-center text-[10px] font-bold">
+                    Flew Away @ {currentMultiplier.toFixed(2)}x
+                  </div>
+                  {queuedNextRound1 ? (
+                    <button
+                      onClick={() => setQueuedNextRound1(false)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                      Next Round Queued (Cancel)
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleQueueBet1}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
+                    >
+                      Bet {bet1Amount} INR (Next Round)
+                    </button>
+                  )}
                 </div>
               )
+            ) : status === "BETTING" ? (
+              <button
+                disabled={loading1}
+                onClick={handlePlaceBet1}
+                className="w-full py-3 rounded-xl font-black text-xs uppercase shadow-lg bg-[#28a745] hover:bg-[#218838] text-white shadow-green-950/40 active:brightness-90 active:scale-[0.98] transition touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {loading1 ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Placing Bet...</span>
+                  </>
+                ) : (
+                  <span>Bet {bet1Amount} INR</span>
+                )}
+              </button>
+            ) : queuedNextRound1 ? (
+              <button
+                onClick={() => setQueuedNextRound1(false)}
+                className="w-full py-3 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                WAITING FOR NEXT ROUND (CANCEL)
+              </button>
             ) : (
               <button
-                disabled={status !== "BETTING" || loading1}
-                onClick={handlePlaceBet1}
-                className={`w-full py-3 rounded-xl font-black text-xs uppercase shadow-lg active:scale-95 transition ${
-                  status === "BETTING"
-                    ? "bg-[#28a745] hover:bg-[#218838] text-white shadow-green-950/40"
-                    : "bg-slate-800 text-slate-500 cursor-not-allowed"
-                }`}
+                onClick={handleQueueBet1}
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
               >
-                Bet {bet1Amount} INR
+                Bet {bet1Amount} INR (Next Round)
               </button>
             )}
           </div>
@@ -684,14 +790,14 @@ export default function AviatorPage() {
           <div className="flex items-center justify-between bg-black/40 rounded-xl p-1 mt-2 border border-purple-950">
             <button
               onClick={() => setBet2Amount(Math.max(10, bet2Amount - 10))}
-              className="w-7 h-7 rounded-lg bg-slate-800 text-white font-black flex items-center justify-center text-sm"
+              className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-slate-800 active:bg-slate-700 text-white font-black flex items-center justify-center text-base touch-manipulation"
             >
               -
             </button>
             <span className="font-mono font-bold text-xs text-white">₹{bet2Amount}</span>
             <button
               onClick={() => setBet2Amount(bet2Amount + 10)}
-              className="w-7 h-7 rounded-lg bg-slate-800 text-white font-black flex items-center justify-center text-sm"
+              className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-slate-800 active:bg-slate-700 text-white font-black flex items-center justify-center text-base touch-manipulation"
             >
               +
             </button>
@@ -703,7 +809,7 @@ export default function AviatorPage() {
               <button
                 key={amt}
                 onClick={() => setBet2Amount(amt)}
-                className="py-0.5 rounded bg-slate-900 text-[9px] font-bold text-slate-400 hover:text-white"
+                className="py-1.5 min-h-[28px] rounded bg-slate-900 active:bg-slate-700 text-[10px] font-bold text-slate-300 hover:text-white touch-manipulation"
               >
                 {amt}
               </button>
@@ -728,37 +834,98 @@ export default function AviatorPage() {
           <div className="mt-2.5">
             {activeBet2Id ? (
               hasCashedOut2 ? (
-                <div className="py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-center font-bold text-xs">
-                  +₹{win2Amount.toFixed(1)}
+                <div className="flex flex-col gap-1.5">
+                  <div className="py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-center font-bold text-xs">
+                    +₹{win2Amount.toFixed(1)} Cashed Out!
+                  </div>
+                  {queuedNextRound2 ? (
+                    <button
+                      onClick={() => setQueuedNextRound2(false)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                      Next Round Queued (Cancel)
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleQueueBet2}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
+                    >
+                      Bet {bet2Amount} INR (Next Round)
+                    </button>
+                  )}
                 </div>
               ) : status === "FLYING" ? (
                 <button
                   disabled={loading2}
                   onClick={handleCashout2}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs uppercase animate-pulse shadow-lg"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation disabled:opacity-75 flex items-center justify-center gap-1.5"
                 >
-                  Cash Out ₹{(bet2Amount * currentMultiplier).toFixed(1)}
+                  {loading2 ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Cashing Out...</span>
+                    </>
+                  ) : (
+                    <span>Cash Out ₹{(bet2Amount * currentMultiplier).toFixed(1)}</span>
+                  )}
                 </button>
               ) : status === "BETTING" ? (
-                <div className="py-3 rounded-xl bg-amber-500/20 text-amber-300 text-center text-[10px] font-bold border border-amber-500/40">
-                  Waiting...
+                <div className="py-3 rounded-xl bg-amber-500/20 text-amber-300 text-center text-xs font-bold border border-amber-500/40">
+                  Waiting for flight...
                 </div>
               ) : (
-                <div className="py-3 rounded-xl bg-rose-500/20 text-rose-400 text-center text-[10px] font-bold">
-                  Flew Away
+                <div className="flex flex-col gap-1.5">
+                  <div className="py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-center text-[10px] font-bold">
+                    Flew Away @ {currentMultiplier.toFixed(2)}x
+                  </div>
+                  {queuedNextRound2 ? (
+                    <button
+                      onClick={() => setQueuedNextRound2(false)}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                      Next Round Queued (Cancel)
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleQueueBet2}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
+                    >
+                      Bet {bet2Amount} INR (Next Round)
+                    </button>
+                  )}
                 </div>
               )
+            ) : status === "BETTING" ? (
+              <button
+                disabled={loading2}
+                onClick={handlePlaceBet2}
+                className="w-full py-3 rounded-xl font-black text-xs uppercase shadow-lg bg-[#28a745] hover:bg-[#218838] text-white shadow-green-950/40 active:brightness-90 active:scale-[0.98] transition touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {loading2 ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Placing Bet...</span>
+                  </>
+                ) : (
+                  <span>Bet {bet2Amount} INR</span>
+                )}
+              </button>
+            ) : queuedNextRound2 ? (
+              <button
+                onClick={() => setQueuedNextRound2(false)}
+                className="w-full py-3 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-black text-xs uppercase active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse mr-1" />
+                WAITING FOR NEXT ROUND (CANCEL)
+              </button>
             ) : (
               <button
-                disabled={status !== "BETTING" || loading2}
-                onClick={handlePlaceBet2}
-                className={`w-full py-3 rounded-xl font-black text-xs uppercase shadow-lg active:scale-95 transition ${
-                  status === "BETTING"
-                    ? "bg-[#28a745] hover:bg-[#218838] text-white shadow-green-950/40"
-                    : "bg-slate-800 text-slate-500 cursor-not-allowed"
-                }`}
+                onClick={handleQueueBet2}
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:brightness-90 active:scale-[0.98] transition touch-manipulation flex items-center justify-center gap-1.5"
               >
-                Bet {bet2Amount} INR
+                Bet {bet2Amount} INR (Next Round)
               </button>
             )}
           </div>
@@ -768,19 +935,19 @@ export default function AviatorPage() {
       {/* 5. LIVE PLAYERS & MY BETS DRAWER */}
       <div className="px-2 mt-3">
         <div className="bg-[#120b1c] border border-purple-950 rounded-2xl p-3 shadow-lg">
-          <div className="flex border-b border-purple-950/80 pb-2 text-xs font-bold text-slate-400 gap-4">
+          <div className="flex border-b border-purple-950/80 pb-2 text-xs font-bold text-slate-400 gap-2">
             <button
               onClick={() => setSideTab("ALL")}
-              className={`pb-1 flex items-center gap-1 ${
-                sideTab === "ALL" ? "text-rose-400 border-b-2 border-rose-500" : ""
+              className={`min-h-[36px] py-1.5 px-3 rounded-lg flex items-center gap-1.5 touch-manipulation transition ${
+                sideTab === "ALL" ? "text-rose-400 bg-rose-500/15 border border-rose-500/30" : "hover:text-white"
               }`}
             >
               <Users className="w-3.5 h-3.5" /> All Bets ({livePlayers.length})
             </button>
             <button
               onClick={() => setSideTab("MY")}
-              className={`pb-1 flex items-center gap-1 ${
-                sideTab === "MY" ? "text-rose-400 border-b-2 border-rose-500" : ""
+              className={`min-h-[36px] py-1.5 px-3 rounded-lg flex items-center gap-1.5 touch-manipulation transition ${
+                sideTab === "MY" ? "text-rose-400 bg-rose-500/15 border border-rose-500/30" : "hover:text-white"
               }`}
             >
               <History className="w-3.5 h-3.5" /> My Bets

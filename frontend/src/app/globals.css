@@ -18,6 +18,22 @@ body {
   overflow-x: hidden !important;
   max-width: 100vw;
   width: 100%;
+  touch-action: manipulation;
+}
+
+/* Fast 1-Tap Mobile Touch Response (removes 300ms delay & drag cancel) */
+button,
+a,
+input,
+select,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+  -webkit-touch-callout: none;
 }
 
 /* Custom scrollbars */

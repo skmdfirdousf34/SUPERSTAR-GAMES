@@ -241,6 +241,7 @@ export default function AdminPage() {
   const [settlementNote, setSettlementNote] = useState<string>("");
   const [settlementLoading, setSettlementLoading] = useState<boolean>(false);
   const [settlementsList, setSettlementsList] = useState<OwnerSettlement[]>([]);
+  const [processingTxId, setProcessingTxId] = useState<string | null>(null);
 
   const fetchAdminData = async () => {
     try {
@@ -408,15 +409,19 @@ export default function AdminPage() {
 
   // Deposit Actions
   const handleApproveDeposit = async (transactionId: string) => {
+    if (processingTxId) return;
+    setProcessingTxId(transactionId);
     try {
       await apiRequest("/admin/deposits/approve", {
         method: "POST",
         body: JSON.stringify({ transactionId }),
       });
       setActionMsg("Deposit approved and credited!");
-      fetchAdminData();
+      await fetchAdminData();
     } catch (err: any) {
       alert(err.message || "Approval failed");
+    } finally {
+      setProcessingTxId(null);
     }
   };
 
@@ -441,15 +446,19 @@ export default function AdminPage() {
 
   // Withdrawal Actions
   const handleApproveWithdrawal = async (transactionId: string) => {
+    if (processingTxId) return;
+    setProcessingTxId(transactionId);
     try {
       await apiRequest("/admin/withdrawals/approve", {
         method: "POST",
         body: JSON.stringify({ transactionId }),
       });
       setActionMsg("Withdrawal marked as successfully transferred!");
-      fetchAdminData();
+      await fetchAdminData();
     } catch (err: any) {
       alert(err.message || "Approval failed");
+    } finally {
+      setProcessingTxId(null);
     }
   };
 
@@ -667,7 +676,7 @@ export default function AdminPage() {
                 setSettlementAmount(Math.floor(stats.safeWithdrawableProfit));
                 setShowSettlementModal(true);
               }}
-              className="mt-2 w-full py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-[10px] font-black rounded-lg shadow transition active:scale-98 flex items-center justify-center gap-1"
+              className="mt-2 w-full min-h-[38px] py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-[11px] font-black rounded-lg shadow transition touch-manipulation active:brightness-90 flex items-center justify-center gap-1.5"
             >
               <ArrowDownToLine className="w-3 h-3" />
               <span>Record Profit Payout</span>
@@ -723,10 +732,10 @@ export default function AdminPage() {
       <div className="grid grid-cols-6 border-b border-slate-800 text-[10px] font-bold text-center">
         <button
           onClick={() => setActiveTab("FINANCIALS")}
-          className={`pb-2 transition ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center touch-manipulation cursor-pointer select-none transition ${
             activeTab === "FINANCIALS"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           Ledger
@@ -734,10 +743,10 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("USERS")}
-          className={`pb-2 transition ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center touch-manipulation cursor-pointer select-none transition ${
             activeTab === "USERS"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           Users ({usersList.length})
@@ -745,10 +754,10 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("DEPOSITS")}
-          className={`pb-2 transition relative ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center touch-manipulation cursor-pointer select-none transition relative ${
             activeTab === "DEPOSITS"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           Deposits
@@ -761,10 +770,10 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("WITHDRAWALS")}
-          className={`pb-2 transition relative ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center touch-manipulation cursor-pointer select-none transition relative ${
             activeTab === "WITHDRAWALS"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           Payouts
@@ -777,10 +786,10 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("ALGORITHM")}
-          className={`pb-2 transition ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center touch-manipulation cursor-pointer select-none transition ${
             activeTab === "ALGORITHM"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           Algorithms
@@ -788,10 +797,10 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("DATA_BACKUP")}
-          className={`pb-2 transition flex items-center justify-center gap-1 ${
+          className={`min-h-[44px] py-2.5 px-1 flex items-center justify-center gap-1 touch-manipulation cursor-pointer select-none transition ${
             activeTab === "DATA_BACKUP"
-              ? "text-amber-400 border-b-2 border-amber-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-amber-400 border-b-2 border-amber-400 bg-amber-400/5"
+              : "text-slate-400 hover:text-white active:bg-slate-800/50"
           }`}
         >
           <Database className="w-3 h-3 text-cyan-400" />
@@ -970,7 +979,7 @@ export default function AdminPage() {
                       setFreezeModalUser(u);
                       setFreezeReason(u.freezeReason || "");
                     }}
-                    className={`py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition ${
+                    className={`min-h-[36px] py-1.5 px-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition touch-manipulation active:brightness-90 ${
                       u.isFrozen
                         ? "bg-emerald-600 hover:bg-emerald-500 text-black"
                         : "bg-rose-900/40 hover:bg-rose-900/70 border border-rose-500/40 text-rose-300"
@@ -989,7 +998,7 @@ export default function AdminPage() {
 
                   <button
                     onClick={() => setSelectedUserForBalance(u)}
-                    className="py-1.5 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center gap-1"
+                    className="min-h-[36px] py-1.5 px-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-200 border border-slate-700 flex items-center justify-center gap-1 transition touch-manipulation active:brightness-90"
                   >
                     <Sliders className="w-3 h-3 text-amber-400" />
                     <span>Adjust ₹</span>
@@ -997,7 +1006,7 @@ export default function AdminPage() {
 
                   <button
                     onClick={() => setInspectUserId(u.id)}
-                    className="py-1.5 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center gap-1"
+                    className="min-h-[36px] py-1.5 px-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-200 border border-slate-700 flex items-center justify-center gap-1 transition touch-manipulation active:brightness-90"
                   >
                     <Eye className="w-3 h-3 text-blue-400" />
                     <span>Full Audit</span>
@@ -1061,18 +1070,30 @@ export default function AdminPage() {
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={() => setRejectingTx({ id: dep.id, type: "DEPOSIT" })}
-                  className="bg-slate-800 hover:bg-rose-950/40 border border-rose-500/40 text-rose-300 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                  className="bg-slate-800 hover:bg-rose-950/40 border border-rose-500/40 text-rose-300 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 touch-manipulation active:brightness-90"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   <span>Reject (Fake UTR)</span>
                 </button>
 
                 <button
+                  disabled={Boolean(processingTxId)}
                   onClick={() => handleApproveDeposit(dep.id)}
-                  className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-black py-2.5 rounded-xl text-xs font-black shadow-lg shadow-green-950/40 transition flex items-center justify-center gap-1"
+                  className={`bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-black py-2.5 rounded-xl text-xs font-black shadow-lg shadow-green-950/40 transition flex items-center justify-center gap-1.5 touch-manipulation active:brightness-90 ${
+                    processingTxId === dep.id ? "opacity-75 cursor-wait" : ""
+                  }`}
                 >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>Approve & Credit ₹{dep.amount}</span>
+                  {processingTxId === dep.id ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Crediting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>Approve & Credit ₹{dep.amount}</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -1148,18 +1169,30 @@ export default function AdminPage() {
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
                     onClick={() => setRejectingTx({ id: w.id, type: "WITHDRAWAL" })}
-                    className="bg-slate-800 hover:bg-rose-950/40 border border-rose-500/40 text-rose-300 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                    className="bg-slate-800 hover:bg-rose-950/40 border border-rose-500/40 text-rose-300 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 touch-manipulation active:brightness-90"
                   >
                     <XCircle className="w-3.5 h-3.5" />
                     <span>Reject & Refund</span>
                   </button>
 
                   <button
+                    disabled={Boolean(processingTxId)}
                     onClick={() => handleApproveWithdrawal(w.id)}
-                    className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-black py-2.5 rounded-xl text-xs font-black shadow-lg shadow-green-950/40 transition flex items-center justify-center gap-1"
+                    className={`bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-black py-2.5 rounded-xl text-xs font-black shadow-lg shadow-green-950/40 transition flex items-center justify-center gap-1.5 touch-manipulation active:brightness-90 ${
+                      processingTxId === w.id ? "opacity-75 cursor-wait" : ""
+                    }`}
                   >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span>Approve & Mark Transferred</span>
+                    {processingTxId === w.id ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Approve & Mark Transferred</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -1312,7 +1345,7 @@ export default function AdminPage() {
           <button
             type="submit"
             disabled={savingAlgo}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-black font-black text-sm shadow-xl shadow-amber-500/20 active:scale-98 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-black font-black text-sm shadow-xl shadow-amber-500/20 active:brightness-90 transition disabled:opacity-50 flex items-center justify-center gap-1.5 touch-manipulation cursor-pointer"
           >
             <Zap className="w-4 h-4 fill-black" />
             <span>{savingAlgo ? "Updating..." : "Save Algorithm & Payout Settings"}</span>
