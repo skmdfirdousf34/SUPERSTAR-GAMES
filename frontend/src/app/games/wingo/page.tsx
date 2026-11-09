@@ -94,6 +94,7 @@ export default function WinGoPage() {
   const [isSubmittingBet, setIsSubmittingBet] = useState<boolean>(false);
   const [betError, setBetError] = useState<string | null>(null);
   const [betToast, setBetToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const lastSocketTickTimeRef = useRef<number>(Date.now());
 
   // Refresh balance icon animation
   const [isRefreshingBalance, setIsRefreshingBalance] = useState<boolean>(false);
@@ -104,14 +105,17 @@ export default function WinGoPage() {
   // Win Receipt Modal
   const [winningDetails, setWinningDetails] = useState<WinningDetails | null>(null);
 
-  // Fetch initial state & history for selected mode
-  const fetchData = async (modeKey?: "30S" | "1M" | "3M" | "5M") => {
+  // Fetch initial state & history for selected mode (isInitialMount controls whether to load timer from HTTP)
+  const fetchData = async (modeKey?: "30S" | "1M" | "3M" | "5M", isInitialMount: boolean = false) => {
     const currentMode = modeKey || selectedGameMode;
     try {
-      const state = await apiRequest(`/games/wingo/state?type=${currentMode}`);
-      setPeriod(state.period);
-      setTimeLeft(state.timeLeft);
-      setIsBettingOpen(state.isBettingOpen);
+      // ONLY set timer and period on initial mode load, NEVER in background refreshes!
+      if (isInitialMount) {
+        const state = await apiRequest(`/games/wingo/state?type=${currentMode}`);
+        setPeriod(state.period);
+        setTimeLeft(state.timeLeft);
+        setIsBettingOpen(state.isBettingOpen);
+      }
 
       const hist = await apiRequest(`/games/wingo/history?type=${currentMode}`);
       setHistory(hist);
@@ -126,8 +130,8 @@ export default function WinGoPage() {
   };
 
   useEffect(() => {
-    fetchData(selectedGameMode);
-  }, [selectedGameMode, user]);
+    fetchData(selectedGameMode, true);
+  }, [selectedGameMode]);
 
   // Socket listener for real-time round synchronization
   useEffect(() => {
@@ -147,6 +151,7 @@ export default function WinGoPage() {
 
     socket.on("wingo_new_round", (data) => {
       if (!isTargetMode(data)) return;
+      lastSocketTickTimeRef.current = Date.now();
       setPeriod(data.period);
       setTimeLeft(data.timeLeft);
       setIsBettingOpen(true);
@@ -154,6 +159,7 @@ export default function WinGoPage() {
 
     socket.on("wingo_tick", (data) => {
       if (!isTargetMode(data)) return;
+      lastSocketTickTimeRef.current = Date.now();
       setPeriod(data.period);
       setTimeLeft(data.timeLeft);
       setIsBettingOpen(data.isBettingOpen);
@@ -161,6 +167,7 @@ export default function WinGoPage() {
 
     socket.on("wingo_betting_locked", (data) => {
       if (!isTargetMode(data)) return;
+      lastSocketTickTimeRef.current = Date.now();
       setIsBettingOpen(false);
       setTimeLeft(data.timeLeft);
     });
@@ -218,24 +225,18 @@ export default function WinGoPage() {
     };
   }, [socket, user, selectedGameMode]);
 
-  // Continuous smooth countdown ticker: ticks every 1000ms, rolls over seamlessly without freezing at 00
+  // Smart non-competing fallback ticker: ONLY decrements if a socket tick is delayed >1500ms
+  // It NEVER jumps to 30 on its own — eliminating all counter jump glitches!
   useEffect(() => {
-    const localTimer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev > 0) return prev - 1;
-        // When 0 is reached, seamlessly roll over to mode duration (30s / 60s)
-        const durationMap: Record<string, number> = {
-          "30S": 30,
-          "1M": 60,
-          "3M": 180,
-          "5M": 300,
-        };
-        return durationMap[selectedGameMode] || 30;
-      });
+    const fallbackTimer = setInterval(() => {
+      const timeSinceLastTick = Date.now() - lastSocketTickTimeRef.current;
+      if (timeSinceLastTick >= 1500 && timeSinceLastTick < 6000) {
+        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      }
     }, 1000);
 
-    return () => clearInterval(localTimer);
-  }, [selectedGameMode]);
+    return () => clearInterval(fallbackTimer);
+  }, []);
 
   const handleManualRefreshBalance = async () => {
     setIsRefreshingBalance(true);
