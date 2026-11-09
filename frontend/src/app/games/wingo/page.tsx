@@ -105,6 +105,32 @@ export default function WinGoPage() {
   // Win Receipt Modal
   const [winningDetails, setWinningDetails] = useState<WinningDetails | null>(null);
 
+  const serverOffsetRef = useRef<number>(0);
+
+  const getModeDuration = (mode: "30S" | "1M" | "3M" | "5M"): number => {
+    switch (mode) {
+      case "30S":
+        return 30;
+      case "1M":
+        return 60;
+      case "3M":
+        return 180;
+      case "5M":
+        return 300;
+      default:
+        return 30;
+    }
+  };
+
+  const getWallClockTimeLeft = (mode: "30S" | "1M" | "3M" | "5M"): number => {
+    const duration = getModeDuration(mode);
+    const now = new Date(Date.now() + serverOffsetRef.current);
+    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const secondsPassed = Math.floor((now.getTime() - midnight.getTime()) / 1000);
+    const secondsIntoPeriod = secondsPassed % duration;
+    return duration - secondsIntoPeriod;
+  };
+
   // Fetch initial state & history for selected mode (isInitialMount controls whether to load timer from HTTP)
   const fetchData = async (modeKey?: "30S" | "1M" | "3M" | "5M", isInitialMount: boolean = false) => {
     const currentMode = modeKey || selectedGameMode;
@@ -112,9 +138,13 @@ export default function WinGoPage() {
       // ONLY set timer and period on initial mode load, NEVER in background refreshes!
       if (isInitialMount) {
         const state = await apiRequest(`/games/wingo/state?type=${currentMode}`);
+        if (state.serverTime) {
+          serverOffsetRef.current = state.serverTime - Date.now();
+        }
         setPeriod(state.period);
-        setTimeLeft(state.timeLeft);
-        setIsBettingOpen(state.isBettingOpen);
+        const exact = getWallClockTimeLeft(currentMode);
+        setTimeLeft(exact);
+        setIsBettingOpen(exact > 5);
       }
 
       const hist = await apiRequest(`/games/wingo/history?type=${currentMode}`);
@@ -151,18 +181,19 @@ export default function WinGoPage() {
 
     socket.on("wingo_new_round", (data) => {
       if (!isTargetMode(data)) return;
-      lastSocketTickTimeRef.current = Date.now();
+      if (data.serverTime) {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setPeriod(data.period);
-      setTimeLeft(data.timeLeft);
       setIsBettingOpen(true);
     });
 
     socket.on("wingo_tick", (data) => {
       if (!isTargetMode(data)) return;
-      lastSocketTickTimeRef.current = Date.now();
+      if (data.serverTime) {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setPeriod(data.period);
-      setTimeLeft(data.timeLeft);
-      setIsBettingOpen(data.isBettingOpen);
     });
 
     socket.on("wingo_betting_locked", (data) => {
@@ -223,25 +254,17 @@ export default function WinGoPage() {
     };
   }, [socket, user, selectedGameMode]);
 
-  // Smart non-competing fallback ticker: ONLY decrements if a socket tick is delayed >1500ms
-  // It rolls over gracefully to mode duration instead of freezing at 00:00!
+  // Pure High-Frequency Wall-Clock Timer: runs every 250ms to guarantee zero stutter, zero skips, and zero jumps!
+  // Counts down smoothly: 30, 29, ..., 6, 5, 4, 3, 2, 1 -> 30
+  // It is mathematically impossible to skip 5, jump to 30 at 26, or freeze at 00:00!
   useEffect(() => {
-    const fallbackTimer = setInterval(() => {
-      const timeSinceLastTick = Date.now() - lastSocketTickTimeRef.current;
-      if (timeSinceLastTick >= 1500 && timeSinceLastTick < 60000) {
-        const modeDuration =
-          selectedGameMode === "30S"
-            ? 30
-            : selectedGameMode === "1M"
-            ? 60
-            : selectedGameMode === "3M"
-            ? 180
-            : 300;
-        setTimeLeft((prev) => (prev <= 1 ? modeDuration : prev - 1));
-      }
-    }, 1000);
+    const timer = setInterval(() => {
+      const exactTimeLeft = getWallClockTimeLeft(selectedGameMode);
+      setTimeLeft(exactTimeLeft);
+      setIsBettingOpen(exactTimeLeft > 5);
+    }, 250);
 
-    return () => clearInterval(fallbackTimer);
+    return () => clearInterval(timer);
   }, [selectedGameMode]);
 
   const handleManualRefreshBalance = async () => {

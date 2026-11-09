@@ -199,6 +199,7 @@ export class SingleWinGoModeEngine {
         timeLeft: this.timeLeft,
         totalTime: this.totalTime,
         isBettingOpen: this.isBettingOpen,
+        serverTime: Date.now(),
       };
       this.io.emit("wingo_new_round", newRoundPayload);
       this.io.emit(`wingo_new_round_${this.config.shortKey}`, newRoundPayload);
@@ -252,6 +253,7 @@ export class SingleWinGoModeEngine {
       timeLeft: this.timeLeft,
       totalTime: this.totalTime,
       isBettingOpen: this.isBettingOpen,
+      serverTime: Date.now(),
     };
     this.io.emit("wingo_tick", tickPayload);
     this.io.emit(`wingo_tick_${this.config.shortKey}`, tickPayload);
@@ -540,6 +542,7 @@ export class SingleWinGoModeEngine {
       gameType: this.config.key,
       shortType: this.config.shortKey,
       displayName: this.config.displayName,
+      serverTime: Date.now(),
     };
   }
 
